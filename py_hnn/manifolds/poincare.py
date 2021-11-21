@@ -4,7 +4,8 @@ import torch
 
 from manifolds.base import Manifold
 from utils.math_utils import artanh, tanh
-
+MIN_NORM = 1e-15
+BALL_EPS = {torch.float32: 4e-3, torch.float64: 1e-5}
 
 class PoincareBall(Manifold):
     """
@@ -82,14 +83,6 @@ class PoincareBall(Manifold):
         scale = 1. / sqrt_c * artanh(sqrt_c * p_norm) / p_norm
         return scale * p
 
-    def mobius_add(self, x, y, c, dim=-1):
-        x2 = x.pow(2).sum(dim=dim, keepdim=True)
-        y2 = y.pow(2).sum(dim=dim, keepdim=True)
-        xy = (x * y).sum(dim=dim, keepdim=True)
-        num = (1 + 2 * c * xy + c * y2) * x + (1 - c * x2) * y
-        denom = 1 + 2 * c * xy + c ** 2 * x2 * y2
-        return num / denom.clamp_min(self.min_norm)
-
     def mobius_matvec(self, m, x, c):
         sqrt_c = c ** 0.5
         x_norm = x.norm(dim=-1, keepdim=True, p=2).clamp_min(self.min_norm)
@@ -143,3 +136,137 @@ class PoincareBall(Manifold):
         sqnorm = torch.norm(x, p=2, dim=1, keepdim=True) ** 2
         return sqrtK * torch.cat([K + sqnorm, 2 * sqrtK * x], dim=1) / (K - sqnorm)
 
+    ########################################################################
+    ########################################################################
+    ########################################################################
+    @classmethod
+    def distance(self, x, y, keepdim=True):
+        """Hyperbolic distance on the Poincare ball with curvature c.
+        Args:
+            x: torch.Tensor of size B x d with hyperbolic points
+            y: torch.Tensor of size B x d with hyperbolic points
+        Returns: torch,Tensor with hyperbolic distances, size B x 1
+        """
+        pairwise_norm = self.mobius_add(-x, y).norm(dim=-1, p=2, keepdim=True)
+        dist = 2.0 * torch.atanh(pairwise_norm.clamp(-1 + MIN_NORM, 1 - MIN_NORM))
+        if not keepdim:
+            dist = dist.squeeze(-1)
+        return dist
+    
+    
+    @classmethod
+    def pairwise_distance(self, x, keepdim=False):
+        """All pairs of hyperbolic distances (NxN matrix)."""
+        return self.distance(x.unsqueeze(-2), x.unsqueeze(-3), keepdim=keepdim)
+    
+    
+    @classmethod
+    def distance0(self, x, keepdim=True):
+        """Computes hyperbolic distance between x and the origin."""
+        x_norm = x.norm(dim=-1, p=2, keepdim=True)
+        d = 2 * torch.atanh(x_norm.clamp(-1 + 1e-15, 1 - 1e-15))
+        if not keepdim:
+            d = d.squeeze(-1)
+        return d
+    
+    @classmethod
+    def mobius_add(self, x, y):
+        """Mobius addition."""
+        x2 = torch.sum(x * x, dim=-1, keepdim=True)
+        y2 = torch.sum(y * y, dim=-1, keepdim=True)
+        xy = torch.sum(x * y, dim=-1, keepdim=True)
+        # num = (1 + 2 * c * xy + c * y2) * x + (1 - c * x2) * y
+        # denom = 1 + 2 * c * xy + c ** 2 * x2 * y2
+        num = (1 + 2 * xy + y2) * x + (1 - x2) * y
+        denom = 1 + 2 * xy + x2 * y2
+        return num / denom.clamp_min(MIN_NORM)
+
+    @classmethod
+    def mobius_midpoint(self, x, y):
+        """Computes hyperbolic midpoint beween x and y."""
+        t1 = self.mobius_add(-x, y)
+        t2 = self.mobius_mul(t1, 0.5)
+        return self.mobius_add(x, t2)
+    
+    @classmethod
+    def mobius_mul(self, x, t):
+        """Mobius multiplication."""
+        normx = x.norm(dim=-1, p=2, keepdim=True).clamp(min=MIN_NORM, max=1. - 1e-5)
+        return torch.tanh(t * torch.atanh(normx)) * x / normx
+
+    @classmethod
+    def LorentzFactors(self, v):
+        """Calculates Lorentz factors for a given vector.
+        
+        L = 1/√(1 - |v_ij|)
+        more details: https://en.wikipedia.org/wiki/Lorentz_factor.
+        
+        args:
+            v: An N dimensional time-like vector.
+        returns:
+            A scalar indicating the Lorentz factors for a given vector.
+        """
+        pass
+    
+    @classmethod
+    def EinseinWeights(self, a, v):
+      """Calculates the weights used in Einstein Midpoint calculation.
+    
+      total_weight = mobius_sigma(a_i*LorentzFactors(v_i))
+      wight_j = a_j*LorentzFactors(v_j)
+    
+      more details: "Hyperbolic Attention Network" eq. 3.
+    
+      """
+      pass
+    
+    @classmethod
+    def EinsteinMidpoint(self, a, v):
+        """Calculates the Einstein Midpoint for a weighted list of vectors.
+        
+        midpoint = EinseinWeights(a,v)_i * v_i
+        Note: EinseinWeights(a,v)_i is a scalar for i.
+        args:
+            a: The list of co-efficients (weights) in which each co-efficient 
+                belongs to the vector with same index.
+            v: The list of N dimensional time-like vectors.
+        returns:
+            An N dimensional time-like vector.
+        """
+        pass
+          
+    @classmethod
+    def poincare_attention_weight(self, q, k):
+        """Calculate an attention wight for a given query, and keys.
+        
+        a(q_i,k_j) = exp(-Beta*hyperbolic_distnace(q,k) - Constant)
+        more details: "Hyperbolic attention network" eq. 2
+        
+        Note: Beta can be either set manually or learned from query vector.
+        Note: Both vectors must already be in hyperbolic space. (no poincare, no klein)
+    
+        args:
+            q: an N-dimensional query vector for a location i.
+            k: keys for the memory locations (N-dimensional)
+        returns:
+            a scalar that corresponds to the attention weight for the location i.
+        """
+        pass
+    
+    @classmethod
+    def hyperbolic_poincare_aggregation(self, q, k, v):
+        """Calculates the poincare attention for the given query, key, and values.
+    
+        args:
+            q: N*M dimensional matrix of queries, where M is the number of 
+                locations to attend to.
+            k: N*M dimensional matrix of keys, where M is the number of 
+                locations to attend to.
+            v: N*M dimensional matrix of values, where M is the number of 
+                locations to attend to. Note that v is a matrix where each row is
+                a vector in poincate model.
+        returns:
+            z: The self-attention calculation in N*M dimensional matrix form .
+                i_th row corresponds to the attention embeddings for a location i.
+        """
+        pass
