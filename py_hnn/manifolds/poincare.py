@@ -195,10 +195,28 @@ class PoincareBall(Manifold):
         return torch.tanh(t * torch.atanh(normx)) * x / normx
 
     @classmethod
-    def LorentzFactors(self, v):
+    def mobius_sigma(self, tensor_stack):
+        """Calculate sigma for a stack of tensors.
+        
+        args:
+            tensor_stack: A matrix of dim (M, N) where M is the number of 
+                tensors to be added, N is the dimension of the each tensor in
+                poincare model.
+        returns:
+            a tensor of dim (N) in poincare model.
+        """
+        result = tensor_stack[0].view()
+        for idx in range(1, tensor_stack.size(dim=0)):
+            result = self.mobuis_add(result, tensor_stack[idx])
+        return result
+  
+
+    @classmethod
+    def lorentz_factor(self, v, curvature):
         """Calculates Lorentz factors for a given vector.
         
-        L = 1/√(1 - |v_ij|)
+        L = 1/√(1 - |v_ij/c|^2)
+        i.e. L  = 1/sqrt(1 - (distance0(v)/curvature)^2)
         more details: https://en.wikipedia.org/wiki/Lorentz_factor.
         
         args:
@@ -206,26 +224,15 @@ class PoincareBall(Manifold):
         returns:
             A scalar indicating the Lorentz factors for a given vector.
         """
-        pass
+        return 1/torch.sqrt(1 - torch.pow(self.distance0(v)/curvature, 2)).clamp_min(MIN_NORM)
     
     @classmethod
-    def EinseinWeights(self, a, v):
-      """Calculates the weights used in Einstein Midpoint calculation.
-    
-      total_weight = mobius_sigma(a_i*LorentzFactors(v_i))
-      wight_j = a_j*LorentzFactors(v_j)
-    
-      more details: "Hyperbolic Attention Network" eq. 3.
-    
-      """
-      pass
-    
-    @classmethod
-    def EinsteinMidpoint(self, a, v):
+    def einstein_midpoint(self, a, v):
         """Calculates the Einstein Midpoint for a weighted list of vectors.
         
-        midpoint = EinseinWeights(a,v)_i * v_i
+        midpoint = mobius_sigma(EinseinWeights(a,v)_i * v_i)
         Note: EinseinWeights(a,v)_i is a scalar for i.
+
         args:
             a: The list of co-efficients (weights) in which each co-efficient 
                 belongs to the vector with same index.
@@ -233,13 +240,18 @@ class PoincareBall(Manifold):
         returns:
             An N dimensional time-like vector.
         """
-        pass
+        # lorentz_ws has dim of (M)
+        lorentz_ws = torch.FloatTensor([self.lorentz_factor(v_j) for _, v_j in enumerate(v)])
+        total_weight = torch.dot(a, lorentz_ws)
+        # calculates weighted vectors for all Vs in matrix v.
+        tensor_list = torch.mul(torch.transpose(v, dim0=0, dim1=1), lorentz_ws / total_weight)
+        return self.mobius_sigma(tensor_list)
           
     @classmethod
-    def poincare_attention_weight(self, q, k):
+    def poincare_attention_weight(self, q, k, beta, c):
         """Calculate an attention wight for a given query, and keys.
         
-        a(q_i,k_j) = exp(-Beta*hyperbolic_distnace(q,k) - Constant)
+        a(q_i,k_j) = expmap(-Beta*distnace(q,k) - Constant)
         more details: "Hyperbolic attention network" eq. 2
         
         Note: Beta can be either set manually or learned from query vector.
@@ -249,9 +261,11 @@ class PoincareBall(Manifold):
             q: an N-dimensional query vector for a location i.
             k: keys for the memory locations (N-dimensional)
         returns:
-            a scalar that corresponds to the attention weight for the location i.
+            a tesnor of dim (N) where contains the attention weight based on 
+            corresponding query and key vectors.
         """
-        pass
+
+        return torch.stack([self.expmap(beta*self.distance(q[idx], k[idx]) - c) for idx in enumerate(q)])
     
     @classmethod
     def hyperbolic_poincare_aggregation(self, q, k, v):
@@ -269,4 +283,5 @@ class PoincareBall(Manifold):
             z: The self-attention calculation in N*M dimensional matrix form .
                 i_th row corresponds to the attention embeddings for a location i.
         """
-        pass
+        a = self.poincare_attention_weight(q, k)
+        return self.einstein_midpoint(a, v)
