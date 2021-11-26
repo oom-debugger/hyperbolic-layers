@@ -20,8 +20,9 @@ class PoincareBall(Manifold):
     def __init__(self, ):
         super(PoincareBall, self).__init__()
         self.name = 'PoincareBall'
-        self.min_norm = 1e-15
+        self.min_norm = 1e-8
         self.eps = {torch.float32: 4e-3, torch.float64: 1e-5}
+        self.max_norm = 1 - 1e-5
 
     def sqdist(self, p1, p2, c):
         sqrt_c = c ** 0.5
@@ -190,48 +191,38 @@ class PoincareBall(Manifold):
     
     @classmethod
     def mobius_mul(self, x, t):
-        """Mobius multiplication."""
+        """Mobius multiplication. 
+        
+        t*x = tanh(t*arctanh(|x|)) * x/|x|
+        
+        Note: arctanh(x) is only defined for x < 1
+        """
         normx = x.norm(dim=-1, p=2, keepdim=True).clamp(min=MIN_NORM, max=1. - 1e-5)
         return torch.tanh(t * torch.atanh(normx)) * x / normx
-
+        
     @classmethod
-    def mobius_sigma(self, tensor_stack):
-        """Calculate sigma for a stack of tensors.
+    def _sq_gamma(self, v, r):
+        """Calculates Gamma factor for poincare ball.
+        
+        according to eq. 2.45 of "Gyrovector space" by Ungar.
+        L  = 1/sqrt(1 - (distance0(v)/ball_radius)^2)
         
         args:
-            tensor_stack: A matrix of dim (M, N) where M is the number of 
-                tensors to be added, N is the dimension of the each tensor in
-                poincare model.
+            v: vector of dime (N) in poincare ball.
+            r: radius of poincare ball.
         returns:
-            a tensor of dim (N) in poincare model.
+            a scalar that corresponds to the gamma factor for a given vector
+            in r-ball.
         """
-        result = tensor_stack[0].view()
-        for idx in range(1, tensor_stack.size(dim=0)):
-            result = self.mobuis_add(result, tensor_stack[idx])
-        return result
-  
-
-    @classmethod
-    def lorentz_factor(self, v, curvature):
-        """Calculates Lorentz factors for a given vector.
+        return 1/(1 - torch.pow(self.distance0(v)/r, 2)).clamp_min(min=self.min, max=self.max_norm)
         
-        L = 1/√(1 - |v_ij/c|^2)
-        i.e. L  = 1/sqrt(1 - (distance0(v)/curvature)^2)
-        more details: https://en.wikipedia.org/wiki/Lorentz_factor.
         
-        args:
-            v: An N dimensional time-like vector.
-        returns:
-            A scalar indicating the Lorentz factors for a given vector.
-        """
-        return 1/torch.sqrt(1 - torch.pow(self.distance0(v)/curvature, 2)).clamp_min(MIN_NORM)
-    
     @classmethod
-    def einstein_midpoint(self, a, v):
+    def _mobius_midpoint(self, a, v):
         """Calculates the Einstein Midpoint for a weighted list of vectors.
         
-        midpoint = mobius_sigma(EinseinWeights(a,v)_i * v_i)
-        Note: EinseinWeights(a,v)_i is a scalar for i.
+        Note taht the eq. is the generalization of eq. 3.134 of  
+        "Gyrovector space" by Ungar.
 
         args:
             a: The list of co-efficients (weights) in which each co-efficient 
@@ -240,12 +231,16 @@ class PoincareBall(Manifold):
         returns:
             An N dimensional time-like vector.
         """
-        # lorentz_ws has dim of (M)
-        lorentz_ws = torch.FloatTensor([self.lorentz_factor(v_j) for _, v_j in enumerate(v)])
-        total_weight = torch.dot(a, lorentz_ws)
-        # calculates weighted vectors for all Vs in matrix v.
-        tensor_list = torch.mul(torch.transpose(v, dim0=0, dim1=1), lorentz_ws / total_weight)
-        return self.mobius_sigma(tensor_list)
+        gamma_ws = torch.FloatTensor([self._sq_gamma(v_j) for _, v_j in enumerate(v)])
+        total_gamma_ws = torch.sum(gamma_ws) - len(a) / 2
+        n_gamma_ws = gamma_ws / total_gamma_ws
+        # Calculates the weighted vectors
+        # assert len(a) == v.size(dim=0)
+        normalized_a = torch.nn.functional.normalize(a)
+        # Note: attention weights are scalars, we probably can have non-mobius mul here.
+        # weighted_v = self.mobius_mul(v[idx], normalized_a[idx])
+        weights = (n_gamma_ws * normalized_a).reshape(len(a), 1)
+        return self.mobius_mul(0.5, torch.sum(weights * v, dim=0))
           
     @classmethod
     def poincare_attention_weight(self, q, k, beta, c):
@@ -264,7 +259,10 @@ class PoincareBall(Manifold):
             a tesnor of dim (N) where contains the attention weight based on 
             corresponding query and key vectors.
         """
-
+        # assert q.size(dim=0) == k.size(dim=0)
+        # TODO(): in tensorflow, the for loop is optimized in compile time.
+        # either impletemtn it in tensorflow, or find a way to unroll the loop
+        # for pytorch for GPU performance.
         return torch.stack([self.expmap(beta*self.distance(q[idx], k[idx]) - c) for idx in enumerate(q)])
     
     @classmethod
@@ -283,5 +281,6 @@ class PoincareBall(Manifold):
             z: The self-attention calculation in N*M dimensional matrix form .
                 i_th row corresponds to the attention embeddings for a location i.
         """
+        # assert q.size(dim=x) == k.size(dim=x) == v.size(dim=x) for all dims
         a = self.poincare_attention_weight(q, k)
-        return self.einstein_midpoint(a, v)
+        return self._mobius_midpoint(a, v)
