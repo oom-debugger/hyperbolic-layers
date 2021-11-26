@@ -201,7 +201,7 @@ class PoincareBall(Manifold):
         return torch.tanh(t * torch.atanh(normx)) * x / normx
         
     @classmethod
-    def _sq_gamma(self, v, r):
+    def _sq_gamma(self, v, r = 1):
         """Calculates Gamma factor for poincare ball.
         
         according to eq. 2.45 of "Gyrovector space" by Ungar.
@@ -255,6 +255,7 @@ class PoincareBall(Manifold):
         args:
             q: an N-dimensional query vector for a location i.
             k: keys for the memory locations (N-dimensional)
+            c: 
         returns:
             a tesnor of dim (N) where contains the attention weight based on 
             corresponding query and key vectors.
