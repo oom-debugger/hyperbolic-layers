@@ -231,15 +231,17 @@ class PoincareBall(Manifold):
         returns:
             An N dimensional time-like vector.
         """
-        gamma_ws = torch.FloatTensor([self._sq_gamma(v_j) for _, v_j in enumerate(v)])
-        total_gamma_ws = torch.sum(gamma_ws) - len(a) / 2
-        n_gamma_ws = gamma_ws / total_gamma_ws
         # Calculates the weighted vectors
-        # assert len(a) == v.size(dim=0)
-        normalized_a = torch.nn.functional.normalize(a)
         # Note: attention weights are scalars, we probably can have non-mobius mul here.
-        # weighted_v = self.mobius_mul(v[idx], normalized_a[idx])
-        weights = (n_gamma_ws * normalized_a).reshape(len(a), 1)
+        # assert len(a) == v.size(dim=0)
+        n_a = torch.nn.functional.normalize(a)
+        w_v = torch.FloatTensor([self.mobius_mul(v[i], n_a[i]) for i in range(0, len(n_a))])
+
+        # Calculates the gamma factors for all vectors        
+        gamma_ws = torch.FloatTensor([self._sq_gamma(w_v_j) for _, w_v_j in enumerate(w_v)])
+        weights = (gamma_ws / (torch.sum(gamma_ws) - len(a) / 2)).reshape(len(a), 1)
+
+        # Generalized mobius midpoint
         return self.mobius_mul(0.5, torch.sum(weights * v, dim=0))
           
     @classmethod
@@ -267,9 +269,12 @@ class PoincareBall(Manifold):
         return torch.stack([self.expmap(beta*self.distance(q[idx], k[idx]) - c) for idx in enumerate(q)])
     
     @classmethod
-    def hyperbolic_poincare_aggregation(self, q, k, v):
+    def poincare_aggregation(self, q, k, v):
         """Calculates the poincare attention for the given query, key, and values.
     
+        Note: if used in Graph attention mechansim, all the masked vectors need 
+            to be filtered out from q,k,v before invoking this function.
+
         args:
             q: N*M dimensional matrix of queries, where M is the number of 
                 locations to attend to.
