@@ -5,6 +5,7 @@ import torch
 from manifolds.base import Manifold
 from utils.math_utils import artanh, tanh
 MIN_NORM = 1e-15
+MAX_NORM = 1 - 1e-8
 BALL_EPS = {torch.float32: 4e-3, torch.float64: 1e-5}
 
 class PoincareBall(Manifold):
@@ -197,7 +198,7 @@ class PoincareBall(Manifold):
         
         Note: arctanh(x) is only defined for x < 1
         """
-        normx = x.norm(dim=-1, p=2, keepdim=True).clamp(min=MIN_NORM, max=1. - 1e-5)
+        normx = x.norm(dim=-1, p=2, keepdim=True).clamp(min=MIN_NORM, max=MAX_NORM)
         return torch.tanh(t * torch.atanh(normx)) * x / normx
         
     @classmethod
@@ -214,7 +215,7 @@ class PoincareBall(Manifold):
             a scalar that corresponds to the gamma factor for a given vector
             in r-ball.
         """
-        return 1/(1 - torch.pow(self.distance0(v)/r, 2)).clamp_min(min=self.min, max=self.max_norm)
+        return 1/(1 - torch.pow(self.distance0(v)/r, 2)).clamp(min=self.MIN_NORM, max=MAX_NORM)
         
         
     @classmethod
@@ -234,15 +235,15 @@ class PoincareBall(Manifold):
         # Calculates the weighted vectors
         # Note: attention weights are scalars, we probably can have non-mobius mul here.
         # assert len(a) == v.size(dim=0)
-        n_a = torch.nn.functional.normalize(a)
-        w_v = torch.FloatTensor([self.mobius_mul(v[i], n_a[i]) for i in range(0, len(n_a))])
+        n_a = torch.nn.functional.normalize(a, dim=-1)
+        w_v = torch.stack([self.mobius_mul(v[i], n_a[i]) for i in range(0, len(n_a))])
 
         # Calculates the gamma factors for all vectors        
         gamma_ws = torch.FloatTensor([self._sq_gamma(w_v_j) for _, w_v_j in enumerate(w_v)])
         weights = (gamma_ws / (torch.sum(gamma_ws) - len(a) / 2)).reshape(len(a), 1)
 
         # Generalized mobius midpoint
-        return self.mobius_mul(0.5, torch.sum(weights * v, dim=0))
+        return self.mobius_mul(x=torch.sum(weights * v, dim=0), t=0.5)
           
     @classmethod
     def poincare_attention_weight(self, q, k, beta, c):
