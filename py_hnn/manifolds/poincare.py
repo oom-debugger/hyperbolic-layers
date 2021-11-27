@@ -277,13 +277,13 @@ class PoincareBall(Manifold):
             to be filtered out from q,k,v before invoking this function.
 
         args:
-            q: N*M dimensional matrix of queries, where M is the number of 
+            q: M*N dimensional matrix of queries, where M is the number of 
                 locations to attend to.
-            k: N*M dimensional matrix of keys, where M is the number of 
+            k: M*N dimensional matrix of keys, where M is the number of 
                 locations to attend to.
-            v: N*M dimensional matrix of values, where M is the number of 
-                locations to attend to. Note that v is a matrix where each row is
-                a vector in poincate model.
+            v: M*N dimensional matrix of values, where M is the number of 
+                locations to attend to. Note that v is a matrix where each row 
+                is a vector in poincate model.
         returns:
             z: The self-attention calculation in N*M dimensional matrix form .
                 i_th row corresponds to the attention embeddings for a location i.
@@ -291,3 +291,19 @@ class PoincareBall(Manifold):
         # assert q.size(dim=x) == k.size(dim=x) == v.size(dim=x) for all dims
         a = self.poincare_attention_weight(q, k)
         return self._mobius_midpoint(a, v)
+
+
+    def graph_attention(self, a, v):
+        """calculare the graph attention.
+        
+        Note: it is based on the eq.8, eq.9 in "Hyperbolic graph attention network" paper.
+        
+        args:
+            a: attention coefficient vector.
+            v: M*N dimensional matrix, where M is the number of 
+                vectors of dim N.
+        """
+        ws = torch.FloatTensor([self.exmap0(a_i) for a_i in a])
+        normalize_w = (ws / torch.sum(ws)).reshape(len(a), 1)
+        return self._mobius_midpoint(normalize_w, v)
+    
