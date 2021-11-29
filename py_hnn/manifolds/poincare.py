@@ -260,7 +260,7 @@ class PoincareBall(Manifold):
             k: keys for the memory locations (N-dimensional)
             c: 
         returns:
-            a tesnor of dim (N) where contains the attention weight based on 
+            a tesnor of dim (M, 1) where contains the attention weight based on 
             corresponding query and key vectors.
         """
         # assert q.size(dim=0) == k.size(dim=0)
@@ -277,20 +277,23 @@ class PoincareBall(Manifold):
             to be filtered out from q,k,v before invoking this function.
 
         args:
-            q: M*N dimensional matrix of queries, where M is the number of 
+            q: M*M*N dimensional matrix of queries, where M is the number of 
                 locations to attend to.
-            k: M*N dimensional matrix of keys, where M is the number of 
+            k: M*M*N dimensional matrix of keys, where M is the number of 
                 locations to attend to.
-            v: M*N dimensional matrix of values, where M is the number of 
+            v: M*M*N dimensional matrix of values, where M is the number of 
                 locations to attend to. Note that v is a matrix where each row 
                 is a vector in poincate model.
         returns:
-            z: The self-attention calculation in N*M dimensional matrix form .
-                i_th row corresponds to the attention embeddings for a location i.
+            The self-attention calculation in M*N dimensional matrix form .
+            i_th row corresponds to the attention embeddings for a location i.
         """
         # assert q.size(dim=x) == k.size(dim=x) == v.size(dim=x) for all dims
-        a = self.poincare_attention_weight(q, k)
-        return self._mobius_midpoint(a, v)
+        h = []
+        for i, v_i in enumerate(v):
+            a = self.poincare_attention_weight(q[i], k[i])
+            h.append(torch.stack([self._mobius_midpoint(a[j], v[i][j]) for j, _ in enumerate(v[i])]))
+        return torch.stack(h)
 
 
     def graph_attention(self, a, v, mask, c):
@@ -305,6 +308,9 @@ class PoincareBall(Manifold):
             mask: a vector of dim (M, 1) that indicates the connections to the
                 node.
             c: ball curvature.
+        returns:
+            a vector of dim(1,N) corresponding to the attention embeddings for
+            the given node.
         """
         # TODO(mehrdad): investigate if graph connection can be uploaded at compile time.
         masked_v = []
