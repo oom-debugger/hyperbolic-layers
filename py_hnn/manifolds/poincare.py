@@ -228,7 +228,7 @@ class PoincareBall(Manifold):
         args:
             a: The list of co-efficients (weights) in which each co-efficient 
                 belongs to the vector with same index.
-            v: The list of N dimensional time-like vectors.
+            v: The M*N dimensional time-like vectors.
         returns:
             An N dimensional time-like vector.
         """
@@ -291,8 +291,7 @@ class PoincareBall(Manifold):
         # assert q.size(dim=x) == k.size(dim=x) == v.size(dim=x) for all dims
         h = []
         for i, v_i in enumerate(v):
-            a = self.poincare_attention_weight(q[i], k[i])
-            h.append(torch.stack([self._mobius_midpoint(a[j], v[i][j]) for j, _ in enumerate(v[i])]))
+            h.append([self._mobius_midpoint(self.poincare_attention_weight(q[i], k[i]), v_i)])
         return torch.stack(h)
 
 
@@ -302,22 +301,31 @@ class PoincareBall(Manifold):
         Note: it is based on the eq.8, eq.9 in "Hyperbolic graph attention network" paper.
         
         args:
-            a: attention coefficient vector of dim(M,1).
+            a: attention coefficient vector of dim(M,M,N).
             v: M*N dimensional matrix, where M is the number of 
-                vectors of dim N.
-            mask: a vector of dim (M, 1) that indicates the connections to the
-                node.
+                vectors of dim N. 
+            mask: a vector of dim (M, M) that indicates the connection map of
+                the nodes in the graph.
             c: ball curvature.
         returns:
-            a vector of dim(1,N) corresponding to the attention embeddings for
+            a vector of dim(M,N) corresponding to the attention embeddings for
             the given node.
         """
         # TODO(mehrdad): investigate if graph connection can be uploaded at compile time.
         masked_v = []
         masked_a = []
-        for idx, mask_bit in enumerate(mask):
-            if mask_bit == 1:
-                masked_v.append(v[idx])
-                masked_a.append(a[idx])
-        return self._mobius_midpoint(torch.stack(masked_a), torch.stack(masked_v))
+        h = []
+        for i, _ in enumerate(v):
+            a_i = a[i].view()
+            mask_i = mask[i].view()
+            # For each node we extract the nodes in the connection map, then 
+            # we calculate the mid-point for that node. This needs to be
+            # repeated for all nodes in the graph.
+            for idx, mask_bit in enumerate(mask_i):
+                if mask_bit == 1:
+                    masked_v.append(v[idx])
+                    masked_a.append(a_i[idx])
+            h.append(self._mobius_midpoint(torch.stack(masked_a), torch.stack(masked_v)))
+        return torch.stack(h)
+
     
