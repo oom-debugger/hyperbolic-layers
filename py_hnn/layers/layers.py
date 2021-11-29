@@ -86,3 +86,12 @@ class FermiDiracDecoder(Module):
         probs = 1. / (torch.exp((dist - self.r) / self.t) + 1.0)
         return probs
 
+
+class GraphAttNetwork(Module):
+    """Graph attention network, implemented according to Velickovic's paper."""
+    
+    def __init__(self, r, t):
+        pass
+    
+    def forward(self, x):
+        pass

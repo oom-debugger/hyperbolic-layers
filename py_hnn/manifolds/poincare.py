@@ -293,18 +293,25 @@ class PoincareBall(Manifold):
         return self._mobius_midpoint(a, v)
 
 
-    def graph_attention(self, a, v, c):
-        """calculare the graph attention.
+    def graph_attention(self, a, v, mask, c):
+        """calculare the graph attention for a single node.
         
         Note: it is based on the eq.8, eq.9 in "Hyperbolic graph attention network" paper.
         
         args:
-            a: attention coefficient vector.
+            a: attention coefficient vector of dim(M,1).
             v: M*N dimensional matrix, where M is the number of 
                 vectors of dim N.
+            mask: a vector of dim (M, 1) that indicates the connections to the
+                node.
             c: ball curvature.
         """
-        ws = torch.FloatTensor([self.expmap0(u=a_i, c=c) for a_i in a])
-        normalize_w = (ws / torch.sum(ws)).reshape(len(a), 1)
-        return self._mobius_midpoint(normalize_w, v)
+        # TODO(mehrdad): investigate if graph connection can be uploaded at compile time.
+        masked_v = []
+        masked_a = []
+        for idx, mask_bit in enumerate(mask):
+            if mask_bit == 1:
+                masked_v.append(v[idx])
+                masked_a.append(a[idx])
+        return self._mobius_midpoint(torch.stack(masked_a), torch.stack(masked_v))
     
