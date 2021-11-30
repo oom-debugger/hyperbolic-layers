@@ -295,7 +295,8 @@ class PoincareBall(Manifold):
         return torch.stack(h)
 
 
-    def graph_attention(self, a, v, mask, c):
+    @classmethod
+    def graph_attention(self, a, v, mask):
         """calculare the graph attention for a single node.
         
         Note: it is based on the eq.8, eq.9 in "Hyperbolic graph attention network" paper.
@@ -306,7 +307,6 @@ class PoincareBall(Manifold):
                 vectors of dim N. 
             mask: a vector of dim (M, M) that indicates the connection map of
                 the nodes in the graph.
-            c: ball curvature.
         returns:
             a vector of dim(M,N) corresponding to the attention embeddings for
             the given node.
