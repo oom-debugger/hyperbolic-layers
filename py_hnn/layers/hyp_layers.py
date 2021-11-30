@@ -208,7 +208,7 @@ class HypGraphAttentionLayer(Module):
                 dropout=dropout,
                 use_bias=use_bias)
         
-    def forwatd(self, input_vectors):
+    def forward(self, input_vectors):
         # project the hyperbolic vector to poincare model.
         poincare_in = PoincareBall.proj(x=input_vectors, c=self.curvature)
         att_coeff = self.att_input_linear(poincare_in)

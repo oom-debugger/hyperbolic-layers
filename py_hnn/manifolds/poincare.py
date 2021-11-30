@@ -43,6 +43,13 @@ class PoincareBall(Manifold):
         return dp
 
     def proj(self, x, c):
+        """Project points to Poincare ball with curvature c.
+        Args:
+            x: torch.Tensor of dim(M,N) with hyperbolic points
+            c: manifold curvature.
+        Returns:
+            torch.Tensor with projected hyperbolic points.
+        """
         norm = torch.clamp_min(x.norm(dim=-1, keepdim=True, p=2), self.min_norm)
         maxnorm = (1 - self.eps[x.dtype]) / (c ** 0.5)
         cond = norm > maxnorm
