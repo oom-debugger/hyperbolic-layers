@@ -8,7 +8,6 @@ import torch.nn.init as init
 from torch.nn.modules.module import Module
 
 from layers.att_layers import DenseAtt
-from menifold.poincare import PoincareBall
 
 
 def get_dim_act_curv(args):
@@ -133,6 +132,11 @@ class HypAgg(Module):
             self.att = DenseAtt(in_features, dropout)
 
     def forward(self, x, adj):
+        """
+        args:
+            x: input tensor.
+            adj: 
+        """
         x_tangent = self.manifold.logmap0(x, c=self.c)
         if self.use_att:
             if self.local_agg:
@@ -178,39 +182,3 @@ class HypAct(Module):
         return 'c_in={}, c_out={}'.format(
             self.c_in, self.c_out
         )
-
-
-class HypGraphAttentionLayer(Module):
-    """
-    Hyperbolic attention layer.
-    """
-    def __init__(self, mask, vector_dim, curvature, dropout=0.1, use_bias=False):
-        self.mask = mask
-        self.curvature = curvature
-        self.vector_dim = vector_dim
-        self.graph_dim = mask.dim(0)
-        # As the first step, we create an attention matrix using a linear layer
-        # followed by a leakyReLU. 
-        # inspired from "Graph Attention Networks" by P. Veickovic ICLR 2018.
-        self.att_input_linear = HypLinear(
-                in_features=self.graph_dim * self.vector_dim, 
-                out_features=self.graph_dim * self.graph_dim * self.vector_dim, 
-                c=self.curvature, 
-                dropout=dropout, 
-                use_bias=use_bias)
-        # TODO(mehrdad): investigate if it is needed and maybe remove. I don't
-        # know the effect of LeakyRelU on hyperbolic vectors.
-        # self.att_leakyrelu = nn.LeakyReLU(negative_slope=1e-2, inpace=True)
-        self.att_out_linear = HypLinear(
-                in_features=self.graph_dim * self.vector_dim,
-                out_features=self.graph_dim * self.vector_dim,
-                c=self.curvature,
-                dropout=dropout,
-                use_bias=use_bias)
-        
-    def forward(self, input_vectors):
-        # project the hyperbolic vector to poincare model.
-        poincare_in = PoincareBall.proj(x=input_vectors, c=self.curvature)
-        att_coeff = self.att_input_linear(poincare_in)
-        att_vectors = PoincareBall.graph_attention(a=att_coeff, v=poincare_in, mask=self.mask)
-        return PoincareBall.to_hyperboloid(x=self.att_out_linear(att_vectors), c=self.curvature)
