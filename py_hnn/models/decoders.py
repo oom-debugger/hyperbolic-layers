@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from layers.att_layers import GraphAttentionLayer
 from layers.layers import GraphConvolution, Linear
+from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
 
 
 class Decoder(nn.Module):
@@ -47,6 +48,39 @@ class GATDecoder(Decoder):
         self.cls = GraphAttentionLayer(args.dim, args.n_classes, args.dropout, F.elu, args.alpha, 1, True)
         self.decode_adj = True
 
+class HGATDecoderV0(Decoder):
+    """
+    Hyperbolic Graph Attention Decoder V0.
+    """
+
+    def __init__(self, c, args):
+        super(HGATDecoderV0, self).__init__(c)
+        self.cls = MultiHeadHGAT(input_dim=args.dim,
+                                 output_dim=args.n_classes,
+                                 dropout=args.dropout, 
+                                 activation=F.elu, 
+                                 alpha=args.alpha, 
+                                 nheads=1, 
+                                 self_attention_version='v0')
+        self.decode_adj = True
+
+        
+class HGATDecoderV1(Decoder):
+    """
+    Hyperbolic Graph Attention Decoder V1.
+    """
+
+    def __init__(self, c, args):
+        super(HGATDecoderV1, self).__init__(c)
+        self.cls = MultiHeadHGAT(input_dim=args.dim,
+                                 output_dim=args.n_classes,
+                                 dropout=args.dropout, 
+                                 activation=F.elu, 
+                                 alpha=args.alpha, 
+                                 nheads=1, 
+                                 self_attention_version='v1')
+        self.decode_adj = True
+
 
 class LinearDecoder(Decoder):
     """
@@ -75,6 +109,8 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
+    'HGATV0': HGATDecoderV0,
+    'HGATV1': HGATDecoderV1,
     'HNN': LinearDecoder,
     'HGCN': LinearDecoder,
     'MLP': LinearDecoder,

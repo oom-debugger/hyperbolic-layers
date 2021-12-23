@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from layers.layers import FermiDiracDecoder
-import layers.hyp_layers as hyp_layers
 import manifolds
 import models.encoders as encoders
 from models.decoders import model2decoder
@@ -33,6 +32,7 @@ class BaseModel(nn.Module):
             args.feat_dim = args.feat_dim + 1
         self.nnodes = args.n_nodes
         self.encoder = getattr(encoders, args.model)(self.c, args)
+
 
     def encode(self, x, adj):
         if self.manifold.name == 'Hyperboloid':

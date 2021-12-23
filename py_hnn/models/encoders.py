@@ -7,9 +7,11 @@ import torch.nn.functional as F
 
 import manifolds
 from layers.att_layers import GraphAttentionLayer
+from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
 import layers.hyp_layers as hyp_layers
 from layers.layers import GraphConvolution, Linear, get_dim_act
 import utils.math_utils as pmath
+from manifolds.hyperboloid import Hyperboloid
 
 
 class Encoder(nn.Module):
@@ -141,6 +143,60 @@ class GAT(Encoder):
                     GraphAttentionLayer(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat))
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
+
+
+class HGAT(Encoder):
+    """
+    Graph Attention Networks.
+    """
+
+    def __init__(self, attention_version, c, args):
+        super(HGAT, self).__init__(c)
+        assert args.num_layers > 0
+        dims, acts = get_dim_act(args)
+        gat_layers = []
+        for i in range(len(dims) - 1):
+            in_dim, out_dim = dims[i], dims[i + 1]
+            act = acts[i]
+            assert dims[i + 1] % args.n_heads == 0
+            out_dim = dims[i + 1] // args.n_heads
+#            concat = True
+            gat_layers.append(
+                    MultiHeadHGAT(input_dim=in_dim, 
+                                  output_dim=out_dim, 
+                                  dropout=args.dropout, 
+                                  activation=act, 
+                                  alpha=args.alpha, 
+                                  nheads=args.n_heads, 
+#                                  concat=concat,
+                                  self_attention_version=attention_version))
+
+        self.layers = nn.Sequential(*gat_layers)
+        self.encode_graph = True
+
+
+class HGATV0(HGAT):
+    """
+    Graph Attention Networks.
+    """
+    def __init__(self, c, args):
+        super(HGATV0, self).__init__(attention_version='v0', c=c, args=args)
+        
+    def encode(self, x, adj):
+        x = Hyperboloid.expmap0(x, c=1)
+        if self.encode_graph:
+            input = (x, adj)
+            output, _ = self.layers.forward(input)
+        else:
+            output = self.layers.forward(x)
+        return output
+
+class HGATV1(HGAT):
+    """
+    Graph Attention Networks.
+    """
+    def __init__(self, c, args):
+        super(HGATV1, self).__init__(attention_version='v1', c=c, args=args)
 
 
 class Shallow(Encoder):

@@ -98,13 +98,13 @@ class SpGraphAttentionLayer(nn.Module):
         ones = torch.ones(size=(N, 1))
         if h.is_cuda:
             ones = ones.cuda()
-        e_rowsum = self.special_spmm(edge, edge_e, torch.Size([N, N]), ones)
+        e_rowsum = self.special_spmm(indices=edge, values=edge_e, shape=torch.Size([N, N]), b=ones)
         # e_rowsum: N x 1
 
         edge_e = self.dropout(edge_e)
         # edge_e: E
 
-        h_prime = self.special_spmm(edge, edge_e, torch.Size([N, N]), h)
+        h_prime = self.special_spmm(indices=edge, values=edge_e, shape=torch.Size([N, N]), b=h)
         assert not torch.isnan(h_prime).any()
         # h_prime: N x out
 
@@ -134,6 +134,8 @@ class GraphAttentionLayer(nn.Module):
 
     def forward(self, input):
         x, adj = input
+        if torch.any(torch.isnan(x)):
+            raise ValueError('input tensor has NaaN values')
         x = F.dropout(x, self.dropout, training=self.training)
         if self.concat:
             h = torch.cat([att(x, adj) for att in self.attentions], dim=1)

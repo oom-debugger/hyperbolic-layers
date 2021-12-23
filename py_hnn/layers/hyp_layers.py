@@ -97,6 +97,9 @@ class HypLinear(nn.Module):
         init.constant_(self.bias, 0)
 
     def forward(self, x):
+        """
+        TODO(khatir): is this assume the input vector is already in poincareBall and not hyperbolic space? 
+        """
         drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
         mv = self.manifold.mobius_matvec(drop_weight, x, self.c)
         res = self.manifold.proj(mv, self.c)
@@ -132,10 +135,10 @@ class HypAgg(Module):
             self.att = DenseAtt(in_features, dropout)
 
     def forward(self, x, adj):
-        """
+        """Aggregate the infromation from all the neibor nodes for all the nodes of a graph using the adjaceny matrix.
         args:
-            x: input tensor.
-            adj: 
+            x: input tensor with dim(N,X) which is N is the number of nodes in the graph, and X is the embedding dimension.
+            adj:adjacency matrix of the graph.
         """
         x_tangent = self.manifold.logmap0(x, c=self.c)
         if self.use_att:
@@ -175,8 +178,9 @@ class HypAct(Module):
 
     def forward(self, x):
         xt = self.act(self.manifold.logmap0(x, c=self.c_in))
-        xt = self.manifold.proj_tan0(xt, c=self.c_out)
-        return self.manifold.proj(self.manifold.expmap0(xt, c=self.c_out), c=self.c_out)
+        xt1 = self.manifold.proj_tan0(xt, c=self.c_out)
+        out = self.manifold.proj(self.manifold.expmap0(xt1, c=self.c_out), c=self.c_out)
+        return out
 
     def extra_repr(self):
         return 'c_in={}, c_out={}'.format(

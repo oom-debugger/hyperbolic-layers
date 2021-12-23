@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 from __future__ import division
 from __future__ import print_function
 
@@ -16,6 +18,8 @@ from models.base_models import NCModel, LPModel
 from utils.data_utils import load_data
 from utils.train_utils import get_dir_name, format_metrics
 
+from manifolds.hyperboloid import Hyperboloid
+ 
 
 def train(args):
     np.random.seed(args.seed)
@@ -47,6 +51,7 @@ def train(args):
     # Load data
     data = load_data(args, os.path.join(os.environ['DATAPATH'], args.dataset))
     args.n_nodes, args.feat_dim = data['features'].shape
+    # TODO(mehrdad): try to run this first to make sure we can some good accuracy numbers for hyperbolic GAT.
     if args.task == 'nc':
         Model = NCModel
         args.n_classes = int(data['labels'].max() + 1)
@@ -57,7 +62,8 @@ def train(args):
         if args.task == 'lp':
             Model = LPModel
         else:
-            Model = RECModel
+#            Model = RECModel
+            raise NotImplementedError('RECModel is not implemented.')
             # No validation for reconstruction task
             args.eval_freq = args.epochs + 1
 
@@ -74,6 +80,13 @@ def train(args):
         step_size=int(args.lr_reduce_freq),
         gamma=float(args.gamma)
     )
+    # TODO(mehrdad): Print the detailed parameters in a log file.
+    print("=================================================================")
+    print(model)
+    for p in model.parameters():
+        print(p.size())
+        print('-----')
+    print("=================================================================")
     tot_params = sum([np.prod(p.size()) for p in model.parameters()])
     logging.info(f"Total number of parameters: {tot_params}")
     if args.cuda is not None and int(args.cuda) >= 0 :
@@ -93,6 +106,7 @@ def train(args):
         model.train()
         optimizer.zero_grad()
         embeddings = model.encode(data['features'], data['adj_train_norm'])
+        # TODO(mehrdad): add the debugging log for NaaN.
         train_metrics = model.compute_metrics(embeddings, data, 'train')
         train_metrics['loss'].backward()
         if args.grad_clip is not None:

@@ -3,6 +3,7 @@
 import torch
 
 from manifolds.base import Manifold
+
 from utils.math_utils import arcosh, cosh, sinh 
 
 
@@ -48,7 +49,7 @@ class Hyperboloid(Manifold):
         return torch.clamp(sqdist, max=50.0)
 
     @classmethod
-    def proj(self, x, c):
+    def proj(self, x, c = 1):
         K = 1. / c
         d = x.size(-1) - 1
         y = x.narrow(-1, 1, d)
@@ -61,7 +62,6 @@ class Hyperboloid(Manifold):
 
     @classmethod
     def proj_tan(self, u, x, c):
-        K = 1. / c
         d = x.size(1) - 1
         ux = torch.sum(x.narrow(-1, 1, d) * u.narrow(-1, 1, d), dim=1, keepdim=True)
         mask = torch.ones_like(u)
@@ -134,6 +134,10 @@ class Hyperboloid(Manifold):
 
     @classmethod
     def mobius_matvec(self, m, x, c):
+        """
+        Transform the vector to Euclidean apply matmul and transform back to 
+        Hyperbolic space.
+        """
         u = Hyperboloid.logmap0(x, c)
         mu = u @ m.transpose(-1, -2)
         return Hyperboloid.expmap0(mu, c)
@@ -194,34 +198,4 @@ class Hyperboloid(Manifold):
             sqrtK = K ** 0.5
             eucl_squared_norm = (x * x).sum(dim=-1, keepdim=True)
             return sqrtK * torch.cat((K + eucl_squared_norm, 2 * sqrtK * x), dim=-1) / (K - eucl_squared_norm).clamp_min(Hyperboloid.min_norm)
-    
-    @classmethod
-    def to_poincare(self, x, c=1, ideal=False):
-        """Convert from hyperboloid model to Poincare ball model.
-        
-        Note: converting a point from hyperbolic to poincare ball, for a random
-            vector is a not reversivle i.e. p != from_poincare(to_poincare(p)).
-            p must be in hyperbolic plane to satisfy the reversiblity.
-            
-        Args:
-            x: torch.tensor of shape (..., Minkowski_dim), where Minkowski_dim >= 3
-            ideal: boolean. Should be True if the input vectors are ideal points, False otherwise
-        Returns:
-            torch.tensor of shape (..., Minkowski_dim - 1)
-        """
-        if ideal:
-            return x[..., 1:] / (x[..., 0].unsqueeze(-1)).clamp_min(Hyperboloid.min_norm)
-        else:
-            sqrtK = (1. / c) ** 0.5
-            return sqrtK * x[..., 1:] / (sqrtK + x[..., 0].unsqueeze(-1)).clamp_min(Hyperboloid.min_norm)
 
-
-    @classmethod
-    def concat(self, x, c=1):
-        """Concatnates a lit of vectors into one vector along with dim=0."""
-        # project to Euclidean
-        v = Hyperboloid.to_poincare(x, c)
-        # concat as you are concatnating two euclidean vector
-        v = torch.cat(tensors=torch.unbind(v, dim=0), dim=0)
-        # project back to hyperbloid
-        return Hyperboloid.from_poincare(v, c) 
