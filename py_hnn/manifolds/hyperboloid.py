@@ -72,6 +72,12 @@ class Hyperboloid(Manifold):
 
     @classmethod
     def proj_tan0(self, u, c):
+        """
+        Note: the expmap cannot work on raw Euclidean vector. So we have to 
+        transform the Euclidean vector into the Tangent space first.
+        
+        Note: always the input of proj_tan0 is in the Euclidean space.
+        """
         narrowed = u.narrow(-1, 0, 1)
         vals = torch.zeros_like(u)
         vals[:, 0:1] = narrowed
@@ -79,6 +85,8 @@ class Hyperboloid(Manifold):
 
     @classmethod
     def expmap(self, u, x, c):
+        """ It folds the tangent space on the manifold (expx : TxM -> M).
+        """
         K = 1. / c
         sqrtK = K ** 0.5
         normu = Hyperboloid.minkowski_norm(u)

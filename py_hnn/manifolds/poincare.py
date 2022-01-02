@@ -347,7 +347,7 @@ class PoincareBall(Manifold):
             w_v = v
         # Calculates the gamma factors for all vectors        
         gamma_ws = torch.FloatTensor([PoincareBall._sq_gamma(w_v_j) for _, w_v_j in enumerate(w_v)])
-        weights = (gamma_ws / (torch.sum(gamma_ws) - a.shape[0] / 2)).reshape(a.shape[0], 1)
+        weights = (gamma_ws / (torch.sum(gamma_ws) - w_v.shape[0] / 2)).reshape(w_v.shape[0], 1)
         out = PoincareBall.mobius_mul(x=torch.sum(weights * v, dim=0), t=torch.tensor(0.5))
         # Generalized mobius midpoint
         return out
@@ -445,4 +445,4 @@ class PoincareBall(Manifold):
         a = sc.beta(v.shape[-1]/(m*2), 0.5) / sc.beta(v.shape[-1]/2, 0.5)
         # Note that the following multiplication should not be a mobius mul. 
         # It is there to normalize the raduis of the new PoincareBall to <= 1.
-        return torch.stack(torch.split(tensor=v*a, split_size_or_sections=int(v.shape[-1]/m), dim=-1), dim=split_dim)
+        return torch.stack(torch.split(tensor=v*a, split_size_or_sections=int(v.shape[-1]/m), dim=-1), dim=split_dim)  

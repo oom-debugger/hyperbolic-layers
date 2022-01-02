@@ -18,8 +18,8 @@ from models.base_models import NCModel, LPModel
 from utils.data_utils import load_data
 from utils.train_utils import get_dir_name, format_metrics
 
-from manifolds.hyperboloid import Hyperboloid
- 
+torch.autograd.set_detect_anomaly(True)
+
 
 def train(args):
     np.random.seed(args.seed)
@@ -107,6 +107,7 @@ def train(args):
         optimizer.zero_grad()
         embeddings = model.encode(data['features'], data['adj_train_norm'])
         # TODO(mehrdad): add the debugging log for NaaN.
+        
         train_metrics = model.compute_metrics(embeddings, data, 'train')
         train_metrics['loss'].backward()
         if args.grad_clip is not None:

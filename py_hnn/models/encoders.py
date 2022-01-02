@@ -12,6 +12,7 @@ import layers.hyp_layers as hyp_layers
 from layers.layers import GraphConvolution, Linear, get_dim_act
 import utils.math_utils as pmath
 from manifolds.hyperboloid import Hyperboloid
+from manifolds.poincare import PoincareBall
 
 
 class Encoder(nn.Module):
@@ -117,6 +118,11 @@ class HGCN(Encoder):
         self.encode_graph = True
 
     def encode(self, x, adj):
+        """
+        Args:
+            x: a vector in Euclidean space.
+        """
+        # Performs Hyperboloid.proj_tan0 on Euclidean vector.
         x_tan = self.manifold.proj_tan0(x, self.curvatures[0])
         x_hyp = self.manifold.expmap0(x_tan, c=self.curvatures[0])
         x_hyp = self.manifold.proj(x_hyp, c=self.curvatures[0])
@@ -153,7 +159,8 @@ class HGAT(Encoder):
     def __init__(self, attention_version, c, args):
         super(HGAT, self).__init__(c)
         assert args.num_layers > 0
-        dims, acts = get_dim_act(args)
+        dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
+        self.manifold = getattr(manifolds, args.manifold)()
         gat_layers = []
         for i in range(len(dims) - 1):
             in_dim, out_dim = dims[i], dims[i + 1]
@@ -162,17 +169,24 @@ class HGAT(Encoder):
             out_dim = dims[i + 1] // args.n_heads
 #            concat = True
             gat_layers.append(
-                    MultiHeadHGAT(input_dim=in_dim, 
-                                  output_dim=out_dim, 
-                                  dropout=args.dropout, 
-                                  activation=act, 
-                                  alpha=args.alpha, 
-                                  nheads=args.n_heads, 
-#                                  concat=concat,
-                                  self_attention_version=attention_version))
+                    MultiHeadHGAT(
+                            manifold=self.manifold,
+                            input_dim=in_dim, 
+                            output_dim=out_dim, 
+                            curvature=self.curvatures[i],
+                            dropout=args.dropout, 
+                            activation=act, 
+                            alpha=args.alpha, 
+                            nheads=args.n_heads, 
+#                           concat=concat,
+                            self_attention_version=attention_version))
 
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
+
+    def encode(self, x, adj):
+        x_hyp = Hyperboloid.proj(Hyperboloid.expmap0(Hyperboloid.proj_tan0(x, c=1), c=1), c=1)
+        return super(HGAT, self).encode(x_hyp, adj)
 
 
 class HGATV0(HGAT):
@@ -181,22 +195,6 @@ class HGATV0(HGAT):
     """
     def __init__(self, c, args):
         super(HGATV0, self).__init__(attention_version='v0', c=c, args=args)
-        
-    def encode(self, x, adj):
-        x = Hyperboloid.expmap0(x, c=1)
-        if self.encode_graph:
-            input = (x, adj)
-            output, _ = self.layers.forward(input)
-        else:
-            output = self.layers.forward(x)
-        return output
-
-class HGATV1(HGAT):
-    """
-    Graph Attention Networks.
-    """
-    def __init__(self, c, args):
-        super(HGATV1, self).__init__(attention_version='v1', c=c, args=args)
 
 
 class Shallow(Encoder):

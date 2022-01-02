@@ -12,8 +12,6 @@ from layers.hyp_layers import HypLinear, HypAct
 from manifolds.poincare import PoincareBall
 from manifolds.hyperboloid import Hyperboloid
 
-torch.autograd.set_detect_anomaly(True)
-
 
 def _make_mask_from_edges(edges, n):
     """Make adjacency matrix from edge tensor.
@@ -54,25 +52,7 @@ class SharedSelfAttention(Module):
                 c=self.curvature, 
                 dropout=dropout, 
                 use_bias=use_bias)   
-        self.data_input_linear = HypLinear(
-                manifold=self.manifold,
-                in_features=self.input_dim,
-                out_features=self.output_dim, 
-                c=self.curvature, 
-                dropout=dropout, 
-                use_bias=use_bias)   
-        # self.att_leakyrelu = nn.LeakyReLU()
-        self.att_out_linear = HypLinear(
-                manifold=self.manifold, 
-                in_features=self.output_dim,
-                out_features=self.output_dim,
-                c=self.curvature,
-                dropout=dropout,
-                use_bias=use_bias)
         nn.init.xavier_uniform(self.att_input_linear.weight)
-        nn.init.xavier_uniform(self.data_input_linear.weight)
-        nn.init.xavier_uniform(self.att_out_linear.weight)
-
 
         self.hyp_act = None
         if activation:
@@ -100,8 +80,10 @@ class SharedSelfAttentionV0(SharedSelfAttention):
         if torch.any(torch.isnan(hyp_features)):
             raise ValueError('input to SharedSelfAttentionV0 has NaaN values')
         att_per_node = self.att_input_linear(hyp_features)
-        reduced_hyp_features = self.data_input_linear(hyp_features)
-        
+        # Alternatively you cann pass hyp_features from a seperate linear layer
+        # to create reduced_hyp_features
+        reduced_hyp_features = att_per_node
+
         # create adjaceny matrix from edge info
         mask = edges.to_dense().transpose(0,1)
         if torch.nonzero(mask).numel() == 0:
@@ -125,124 +107,37 @@ class SharedSelfAttentionV0(SharedSelfAttention):
                         'A graph node must have at least one incoming edge.')
             # note that the attention coefficient do not have hyperbolic properties
             # masked_a = torch.softmax(torch.FloatTensor(torch.stack(masked_a).squeeze(-1)), dim=-1)
-            masked_a = torch.nn.functional.normalize(torch.FloatTensor(torch.stack(masked_a).squeeze(-1)), dim=-1)
+            masked_a = torch.FloatTensor(torch.stack(masked_a).squeeze(-1))
             masked_v = torch.stack(masked_v)
             # Note since for attention matrix we use linear layer which includes 
             # droupout rate as well. we omit the separate drop out layer.
             # project the hyperbolic vector to poincare model.
             poincare_v = PoincareBall.from_hyperboloid(x=masked_v, c=self.curvature)
             # calculate attention embeddings for each node.          
-            att_embed = PoincareBall.mobius_midpoint(a=masked_a, v=poincare_v)
-# =============================================================================
-#             # This will cause a memory leak (OOM) during back propagation
-#             vect = PoincareBall.mobius_mul(x=poincare_v, t=masked_a, dim=-1)
-#             att_embed = vect[0]
-#             for i in range(1, vect.shape[0]):
-#                 att_embed = PoincareBall.mobius_add(att_embed, vect[i])
-# =============================================================================                
-            hyp_att_embeddings.append(Hyperboloid.from_poincare(att_embed, c=self.curvature))
+            att_embed = PoincareBall.mobius_midpoint(a=masked_a, v=poincare_v)  
+            hyp_att_em = Hyperboloid.from_poincare(att_embed, c=self.curvature)
+            hyp_att_embeddings.append(hyp_att_em)
         
         hyp_att_embeddings = torch.stack(hyp_att_embeddings)   
-        # TODO(khatir): activation function makes it NaaN...
+        # TODO(khatir): avoid activation function as makes the output NaaN.
         if self.hyp_act:
             hyp_att_embeddings = self.hyp_act(hyp_att_embeddings)    
-        return self.att_out_linear(hyp_att_embeddings)
+            return hyp_att_embeddings
 
 
-class SharedSelfAttentionV1(SharedSelfAttention):
-    """
-    Hyperbolic attention layer with self-attention matrix.
-    
-    Uses mobius midpoint for calculating attention coefficient.
-    """
-    def __init__(self, input_dim, output_dim, curvature, activation=None, alpha=0.2, dropout=0.1, use_bias=True):
-        super(SharedSelfAttentionV1, self).__init__(input_dim, 
-             output_dim, curvature, activation, alpha, dropout, use_bias)
-        self.att_linear = HypLinear(
-                manifold=Hyperboloid,
-                # re-size the attention dim to input size (since we concat 
-                # 2 WVs we need to re-adjust the dimension)
-                # Note that concat in hyperbloid does makes dim 2N - 1. (time dimension still remains the same).
-                in_features=2 * self.output_dim - 1,
-                out_features=self.output_dim,  # outputs the attnetion coefficient in hyperbolic plane (which will be a scalar in poincare model)
-                c=self.curvature, 
-                dropout=0.0, 
-                use_bias=False)
-        self.hyp_leakyrelu = HypAct(
-                manifold=Hyperboloid, 
-                c_in=self.curvature,  
-                c_out=self.curvature, 
-                act=nn.LeakyReLU(negative_slope=alpha))
-        self.hyp_softmax = HypAct(
-                manifold=Hyperboloid, 
-                c_in=self.curvature,
-                c_out=self.curvature, 
-                act=torch.nn.Softmax(dim=0))
-        
-    def forward(self, in_nodes_features, sp_edges):
-        in_nodes_features = torch.Tensor(in_nodes_features)
-        n = in_nodes_features.shape[0]
-
-        # adjacency matrix
-        mask = sp_edges.to_dense()
-        edges = sp_edges.coalesce().indices()
-
-        in_embeddings = self.input_linear(in_nodes_features)
-        w_ = torch.flatten(in_embeddings.unsqueeze(0).repeat(n, 1, 1), start_dim=0, end_dim=1)
-        # this is for masking the a_. it should be normal mul (not mobius).
-        w_masked = torch.mul(mask.flatten().unsqueeze(0).transpose(0,1), w_)
-        
-        # making edge based attention vectors
-        tgt_e = PoincareBall.from_hyperboloid(
-                torch.index_select(in_embeddings, 0, edges[0, :]))
-        src_e = PoincareBall.from_hyperboloid(
-                torch.index_select(in_embeddings, 0, edges[1, :]))
-        concat = Hyperboloid.from_poincare(PoincareBall.concat(torch.stack([tgt_e, src_e], dim=-2)))
-        a = self.att_linear(concat)
-        # TODO(mehrdad): make sure softmax does not make the layer unstable.
-        a = self.hyp_softmax(self.hyp_leakyrelu(a))
-        a_masked = torch.flatten(
-                torch.sparse_coo_tensor(
-                        indices=edges, 
-                        values=a, 
-                        size=(n,n, self.output_dim)).to_dense(), 
-                start_dim=0, 
-                end_dim=1)
-        # This is for masking the a_. it should be normal mul (not mobius).
-        # This should be mobius_bmm.
-        p_a = PoincareBall.from_hyperboloid(a_masked)
-        p_w = PoincareBall.from_hyperboloid(w_masked)
-
-        # Note that att coef vector is not poincare vector. It is a matrix
-        # of scalars where each index contains a coefficient that is resulted
-        # by poincare operation.   
-        att_coef = torch.reshape(PoincareBall.mobius_bmm(p_a.unsqueeze(1), p_w.unsqueeze(-1).transpose(1, 2)), [n,n])
-        # att_coef is a n*n matrix.
-        p_in_embeddings = PoincareBall.from_hyperboloid(in_embeddings)
-        p_out_embedding = []
-        for a in att_coef:
-            p_out_embedding.append(PoincareBall.mobius_midpoint(a=a, v=p_in_embeddings))
-        hyp_att_embeddings = Hyperboloid.from_poincare(torch.stack(p_out_embedding))
-        if self.hyp_act:
-            hyp_att_embeddings = self.hyp_act(hyp_att_embeddings)
-        return self.att_out_linear(hyp_att_embeddings)
-        
-        
 class MultiHeadGraphAttentionLayer(Module):
 
-    def __init__(self, input_dim, output_dim, dropout, activation=None, alpha=0.2, nheads=1, concat=None, self_attention_version='v0'):
+    def __init__(self, manifold, input_dim, output_dim, dropout, curvature=1, activation=None, alpha=0.2, nheads=1, concat=None, self_attention_version='v0'):
         """Sparse version of GAT."""
         super(MultiHeadGraphAttentionLayer, self).__init__()
         if self_attention_version == 'v0':
             self_attention_layer_class = SharedSelfAttentionV0
-        elif self_attention_version == 'v1':
-            self_attention_layer_class = SharedSelfAttentionV1
         else:
             raise ValueError('Unknown self-attention version!')
-
+        self.manifold = manifold
         self.dropout = dropout
         self.output_dim = output_dim
-        self.curvature = 1
+        self.curvature = curvature
         self.manifold = Hyperboloid
         self.attentions = [self_attention_layer_class(
                 manifold=self.manifold,

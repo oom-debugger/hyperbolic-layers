@@ -85,4 +85,3 @@ class FermiDiracDecoder(Module):
     def forward(self, dist):
         probs = 1. / (torch.exp((dist - self.r) / self.t) + 1.0)
         return probs
-
