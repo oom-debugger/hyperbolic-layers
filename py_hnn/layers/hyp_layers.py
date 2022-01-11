@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.modules.module import Module
 
-from layers.att_layers import DenseAtt
+#from layers.att_layers import DenseAtt
 
 
 def get_dim_act_curv(args):
@@ -98,16 +98,27 @@ class HypLinear(nn.Module):
 
     def forward(self, x):
         """
-        TODO(khatir): is this assume the input vector is already in poincareBall and not hyperbolic space? 
+            x: a batch of vectors in mobius/hyperbolic space.
+        Returns:
+            a batch of vectors in the hyperbolic space.
+        
         """
         drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
         mv = self.manifold.mobius_matvec(drop_weight, x, self.c)
         res = self.manifold.proj(mv, self.c)
         if self.use_bias:
+            # bias is Euclidean space. 
+            # Proj_tan0 transform from Euclidean to Tangent space (proj_tan can be different from proj for some Manifolds that we don't care!)
+            # Note for poincare there is no difference between tangent space and Euclidean.
+
+            # Note: whenever you do a expmap you need to do the projection, to make sure it maintains the hyperbolic space.
             bias = self.manifold.proj_tan0(self.bias.view(1, -1), self.c)
             hyp_bias = self.manifold.expmap0(bias, self.c)
             hyp_bias = self.manifold.proj(hyp_bias, self.c)
+            
             res = self.manifold.mobius_add(res, hyp_bias, c=self.c)
+            # we want to make sure the vector stays in the in the hyperbolic space.
+            # Note basically after every mobius operation run a projection...
             res = self.manifold.proj(res, self.c)
         return res
 

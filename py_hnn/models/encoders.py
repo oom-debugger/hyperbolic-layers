@@ -3,16 +3,15 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 import manifolds
 from layers.att_layers import GraphAttentionLayer
 from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
 import layers.hyp_layers as hyp_layers
 from layers.layers import GraphConvolution, Linear, get_dim_act
-import utils.math_utils as pmath
 from manifolds.hyperboloid import Hyperboloid
 from manifolds.poincare import PoincareBall
+import layers.poincare_layers as p_layer
 
 
 class Encoder(nn.Module):
@@ -92,6 +91,28 @@ class GCN(Encoder):
         self.layers = nn.Sequential(*gc_layers)
         self.encode_graph = True
 
+class PGCN(Encoder):
+    """
+    Poincare Graph Convolution Networks.
+    """
+
+    def __init__(self, c, args):
+        super(PGCN, self).__init__(c)
+        assert args.num_layers > 0
+        dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
+        gc_layers = []
+        for i in range(len(dims) - 1):
+            in_dim, out_dim = dims[i], dims[i + 1]
+            act = acts[i]
+            gc_layers.append(p_layer.GraphConvolution(in_dim, out_dim, args.dropout, act, self.curvatures[i], args.bias))
+        self.layers = nn.Sequential(*gc_layers)
+        self.encode_graph = True
+
+    def encode(self, x, adj):
+        # convert the Euclidean embeddings to poincare embeddings
+        x = PoincareBall.poincare2euclidean(x, c=self.curvatures[0])
+        return super(PGCN, self).encode(x, adj)
+  
 
 class HGCN(Encoder):
     """
@@ -149,6 +170,61 @@ class GAT(Encoder):
                     GraphAttentionLayer(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat))
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
+
+
+class PGATV0(Encoder):
+    """
+    Poincare Graph Attention Networks.
+    """
+
+    def __init__(self, c, args):
+        super(PGATV0, self).__init__(c)
+        assert args.num_layers > 0
+        dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
+        gat_layers = []
+        for i in range(len(dims) - 1):
+            in_dim, out_dim = dims[i], dims[i + 1]
+            act = acts[i]
+            assert dims[i + 1] % args.n_heads == 0
+            out_dim = dims[i + 1] // args.n_heads
+            concat = True
+            gat_layers.append(
+                    p_layer.GraphAttentionLayerV0(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat, self.curvatures[i], args.bias))
+
+        self.layers = nn.Sequential(*gat_layers)
+        self.encode_graph = True
+
+    def encode(self, x, adj):
+        # convert the Euclidean embeddings to poincare embeddings
+        x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
+        return super(PGATV0, self).encode(x, adj)
+
+class PGATV1(Encoder):
+    """
+    Poincare Graph Attention Networks.
+    """
+
+    def __init__(self, c, args):
+        super(PGATV1, self).__init__(c)
+        assert args.num_layers > 0
+        dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
+        gat_layers = []
+        for i in range(len(dims) - 1):
+            in_dim, out_dim = dims[i], dims[i + 1]
+            act = acts[i]
+            assert dims[i + 1] % args.n_heads == 0
+            out_dim = dims[i + 1] // args.n_heads
+            concat = True
+            gat_layers.append(
+                    p_layer.GraphAttentionLayerV1(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat, self.curvatures[i], args.bias))
+
+        self.layers = nn.Sequential(*gat_layers)
+        self.encode_graph = True
+
+    def encode(self, x, adj):
+        # convert the Euclidean embeddings to poincare embeddings
+        x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0], keep_sign=True)
+        return super(PGATV1, self).encode(x, adj)
 
 
 class HGAT(Encoder):
