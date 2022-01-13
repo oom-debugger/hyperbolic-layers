@@ -451,19 +451,17 @@ class PoincareBall(Manifold):
         return torch.stack(torch.split(tensor=v*a, split_size_or_sections=int(v.shape[-1]/m), dim=-1), dim=split_dim)
     
     @classmethod
-    def euclidean2poincare(self, x, c, keep_sign = False):
+    def euclidean2poincare(self, x, c):
         """Approximates Euclidean vector to poincare ball across the last dimension.
         """
         p_c = c[0] * PoincareBall.max_norm
         norm = torch.norm(x, dim=-1).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max)
-        x_exp = torch.exp(norm).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max)
-        coef = c  * (1 - x_exp) / (1 + x_exp)
-        if keep_sign:
-            coef = torch.abs(coef)
+        x_exp = torch.exp(-norm).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max)
+        coef = - c  * (1 - x_exp) / (1 + x_exp)
         return ((coef.unsqueeze(-1) * x).t() / norm).t().clamp(min=-p_c, max=p_c)
   
     @classmethod
-    def poincare2euclidean(self, p, c, keep_sign = False):
+    def poincare2euclidean(self, p, c):
         """
         x = ln((1-p)/(1+p))
         """
@@ -471,6 +469,4 @@ class PoincareBall(Manifold):
         norm = torch.norm(p, dim=-1)
         lg = torch.log(((c - norm)/(c + norm)).clamp_min(PoincareBall.min_norm)).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)
         coef = (-lg / norm.clamp_min(PoincareBall.min_norm)).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)
-        if keep_sign:
-            coef = torch.abs(coef)
         return (coef.unsqueeze(-1) *  p).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)

@@ -3,6 +3,10 @@
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+import pandas as pd
+
+
 import datetime
 import json
 import logging
@@ -10,7 +14,6 @@ import os
 import pickle
 import time
 
-import numpy as np
 import optimizers
 import torch
 from config import parser
@@ -20,6 +23,14 @@ from utils.train_utils import get_dir_name, format_metrics
 
 torch.autograd.set_detect_anomaly(True)
 
+def detaching_loss(dic):
+    res = {}
+    for k,v in dic.items():
+        if k == 'loss':
+            v = v.detach().numpy()
+        res.update({k: v.item()})
+    return res
+    
 
 def train(args):
     np.random.seed(args.seed)
@@ -101,6 +112,8 @@ def train(args):
     best_val_metrics = model.init_metric_dict()
     best_test_metrics = None
     best_emb = None
+    train_stats = pd.DataFrame()
+    val_stats = pd.DataFrame()
     for epoch in range(args.epochs):
         t = time.time()
         model.train()
@@ -109,6 +122,7 @@ def train(args):
         # TODO(mehrdad): add the debugging log for NaaN.
         
         train_metrics = model.compute_metrics(embeddings, data, 'train')
+        train_stats = train_stats.append(detaching_loss(train_metrics), ignore_index=True)
         train_metrics['loss'].backward()
         if args.grad_clip is not None:
             max_norm = float(args.grad_clip)
@@ -127,6 +141,7 @@ def train(args):
             model.eval()
             embeddings = model.encode(data['features'], data['adj_train_norm'])
             val_metrics = model.compute_metrics(embeddings, data, 'val')
+            val_stats = val_stats.append(detaching_loss(val_metrics), ignore_index=True)   
             if (epoch + 1) % args.log_freq == 0:
                 logging.info(" ".join(['Epoch: {:04d}'.format(epoch + 1), format_metrics(val_metrics, 'val')]))
             if model.has_improved(best_val_metrics, val_metrics):
@@ -141,6 +156,20 @@ def train(args):
                 if counter == args.patience and epoch > args.min_epochs:
                     logging.info("Early stopping")
                     break
+
+    # Saves the decorder's embeddings and well as the latent space (encoder's 
+    # embedding). It also saves the train and validation metric curves.
+    if args.save:
+        pred = model.encode(data['features'], data['adj_train_norm']).detach().cpu().numpy()
+        emb_df = pd.DataFrame(pred, columns = [f'dim_{i}' for i in range(0, pred.shape[1])])
+        dec_pred = model.decoder.decode(embeddings, data['adj_train_norm']).t().detach().cpu().numpy()
+        for i in range(0, dec_pred.shape[0]):
+            emb_df[f'dec_dim_{i}'] = dec_pred[i].tolist()
+        emb_df['label'] = data['labels']
+        emb_df.to_csv(os.path.join(save_dir, f"embeddings_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+        train_stats.to_csv(os.path.join(save_dir, f"train_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+        val_stats.to_csv(os.path.join(save_dir, f"val_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+
 
     logging.info("Optimization Finished!")
     logging.info("Total time elapsed: {:.4f}s".format(time.time() - t_total))

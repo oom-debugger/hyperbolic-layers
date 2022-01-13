@@ -223,7 +223,7 @@ class PGATV1(Encoder):
 
     def encode(self, x, adj):
         # convert the Euclidean embeddings to poincare embeddings
-        x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0], keep_sign=True)
+        x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
         return super(PGATV1, self).encode(x, adj)
 
 
