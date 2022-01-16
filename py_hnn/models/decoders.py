@@ -6,14 +6,8 @@ import torch.nn.functional as F
 from layers.att_layers import GraphAttentionLayer
 from layers.layers import GraphConvolution, Linear
 from layers.poincare_layers import GraphConvolution as PGraphConvolution
-from layers.poincare_layers import GraphAttentionLayerV0 as PGraphAttentionLayerV0
-from layers.poincare_layers import GraphAttentionLayerV1 as PGraphAttentionLayerV1
- 
-
-from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
-
-from manifolds.poincare import PoincareBall
-from manifolds.hyperboloid import Hyperboloid
+from layers.hyp_att_layers import GraphAttentionLayer as HGraphAttentionLayer
+from layers.poincare_layers import GraphAttentionLayer as PGraphAttentionLayer
 
 
 class Decoder(nn.Module):
@@ -61,11 +55,6 @@ class PGCNDecoder(Decoder):
                                      use_bias=args.bias)
         self.decode_adj = True
 
-#    def decode(self, x, adj):
-#        return super(PGCNDecoder, self).decode(x, adj)
-#        return PoincareBall.euclidean2poincare(out, c=self.c)
-#        return PoincareBall.poincare2euclidean(out, c=self.c)
-
 
 class GATDecoder(Decoder):
     """
@@ -87,24 +76,28 @@ class GATDecoder(Decoder):
     def decode(self, x, adj):
         return super(GATDecoder, self).decode(x, adj)
 
-class PGATDecoderV0(Decoder):
+class HATDecoder(Decoder):
     """
     Graph Attention Decoder.
     """
 
     def __init__(self, c, args):
-        super(PGATDecoderV0, self).__init__(c)
-        self.cls = PGraphAttentionLayerV0(input_dim=args.dim, 
-                                       output_dim=args.n_classes, 
-                                       dropout=args.dropout, 
-                                       activation=F.elu, 
-                                       alpha=args.alpha, 
-                                       nheads=1, 
-                                       concat=True,  
-                                       curvature=self.c, 
-                                       use_bias= False)
-#                                       use_bias= args.bias)
+        super(HATDecoder, self).__init__(c)
+        self.manifold = getattr(manifolds, args.manifold)()
+        self.cls = HGraphAttentionLayer(
+                manifold=self.manifold,
+                input_dim=args.dim, 
+                output_dim=args.n_classes, 
+                dropout=args.dropout, 
+                activation=F.elu, 
+                alpha=args.alpha, 
+                nheads=1, 
+                concat=True,  
+                curvature=self.c, 
+#                use_bias= False)
+                use_bias= args.bias)
         self.decode_adj = True
+
 
 class PGATDecoderV1(Decoder):
     """
@@ -113,7 +106,7 @@ class PGATDecoderV1(Decoder):
 
     def __init__(self, c, args):
         super(PGATDecoderV1, self).__init__(c)
-        self.cls = PGraphAttentionLayerV1(input_dim=args.dim, 
+        self.cls = PGraphAttentionLayer(input_dim=args.dim, 
                                        output_dim=args.n_classes, 
                                        dropout=args.dropout, 
                                        activation=F.elu, 
@@ -125,30 +118,6 @@ class PGATDecoderV1(Decoder):
 #                                       use_bias= args.bias)
         self.decode_adj = True
 
-#    def decode(self, x, adj):
-#        out = super(PGATDecoderV1, self).decode(x, adj)
-#        return PoincareBall.poincare2euclidean(out, c=self.c)
-
-
-class HGATDecoderV0(Decoder):
-    """
-    Hyperbolic Graph Attention Decoder V0.
-    """
-
-    def __init__(self, c, args):
-        super(HGATDecoderV0, self).__init__(c)
-        self.cls = MultiHeadHGAT(input_dim=args.dim,
-                                 output_dim=args.n_classes,
-                                 dropout=args.dropout, 
-                                 activation=F.elu, 
-                                 alpha=args.alpha, 
-                                 nheads=1, 
-                                 self_attention_version='v0')
-        self.decode_adj = True
-        
-    def decode(self, x, adj):
-        h = super(GATDecoder, self).decode(x, adj)
-        return self.manifold.proj_tan0(self.manifold.logmap0(h, c=self.c), c=self.c)
 
 
 class LinearDecoder(Decoder):
@@ -178,9 +147,9 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
-    'PGCN': PGCNDecoder,
-    'PGATV0': PGATDecoderV0,
     'PGATV1': PGATDecoderV1,
+    'PGCN': PGCNDecoder,
+    'HAT': HATDecoder,
     'HGATV0': LinearDecoder,
     'HNN': LinearDecoder,
     'HGCN': LinearDecoder,

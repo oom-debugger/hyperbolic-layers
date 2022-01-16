@@ -7,6 +7,8 @@ import torch.nn as nn
 import manifolds
 from layers.att_layers import GraphAttentionLayer
 from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
+from layers.hyp_att_layers import GraphAttentionLayer as HATlayer
+
 import layers.hyp_layers as hyp_layers
 from layers.layers import GraphConvolution, Linear, get_dim_act
 from manifolds.hyperboloid import Hyperboloid
@@ -172,14 +174,15 @@ class GAT(Encoder):
         self.encode_graph = True
 
 
-class PGATV0(Encoder):
+class HAT(Encoder):
     """
     Poincare Graph Attention Networks.
     """
 
     def __init__(self, c, args):
-        super(PGATV0, self).__init__(c)
+        super(HAT, self).__init__(c)
         assert args.num_layers > 0
+        self.manifold = getattr(manifolds, args.manifold)()
         dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
         gat_layers = []
         for i in range(len(dims) - 1):
@@ -189,15 +192,34 @@ class PGATV0(Encoder):
             out_dim = dims[i + 1] // args.n_heads
             concat = True
             gat_layers.append(
-                    p_layer.GraphAttentionLayerV0(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat, self.curvatures[i], args.bias))
+                    HATlayer(
+                            manifold=self.manifold,
+                            input_dim=in_dim, 
+                            output_dim=out_dim, 
+                            dropout=args.dropout, 
+                            activation=act, 
+                            alpha=args.alpha, 
+                            nheads=args.n_heads, 
+                            concat=concat, 
+                            curvature=self.curvatures[i], 
+                            use_bias=args.bias))
 
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
 
     def encode(self, x, adj):
-        # convert the Euclidean embeddings to poincare embeddings
-        x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
-        return super(PGATV0, self).encode(x, adj)
+        x_tan = self.manifold.proj_tan0(x, self.curvatures[0])
+        x_hyp = self.manifold.expmap0(x_tan, c=self.curvatures[0])
+        x_hyp = self.manifold.proj(x_hyp, c=self.curvatures[0])
+        if isinstance(self.manifold, Hyperboloid):
+            # Produces error on Expmap0 on Backward...  
+            x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.curvatures[0]), c=self.curvatures[0]), c=self.curvatures[0])
+#            x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
+        elif isinstance(self.manifold, PoincareBall):
+            # convert the Euclidean embeddings to poincare embeddings
+            x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
+        return super(HAT, self).encode(x_hyp, adj)
+
 
 class PGATV1(Encoder):
     """

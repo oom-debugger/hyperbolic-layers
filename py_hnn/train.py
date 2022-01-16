@@ -120,7 +120,6 @@ def train(args):
         optimizer.zero_grad()
         embeddings = model.encode(data['features'], data['adj_train_norm'])
         # TODO(mehrdad): add the debugging log for NaaN.
-        
         train_metrics = model.compute_metrics(embeddings, data, 'train')
         train_stats = train_stats.append(detaching_loss(train_metrics), ignore_index=True)
         train_metrics['loss'].backward()

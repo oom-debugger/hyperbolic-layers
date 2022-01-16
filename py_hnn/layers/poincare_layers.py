@@ -15,6 +15,7 @@ from torch.nn.modules.module import Module
 
 import layers.hyp_layers as hyp_layers
 from manifolds.poincare import PoincareBall
+from manifolds.hyperboloid import Hyperboloid
 from layers.att_layers import SpecialSpmm
 
 
@@ -121,96 +122,15 @@ class GraphConvolution(Module):
         return 'input_dim={}, output_dim={}'.format(
                 self.in_features, self.out_features
         )
-    
-
-# ===============================new coef=====================================
-
-class SpGraphAttentionLayerV0(nn.Module):
-    """
-    Sparse version GAT layer, similar to https://arxiv.org/abs/1710.10903
-    """
-
-    def __init__(self, in_features, out_features, dropout, alpha, activation, curvature = 1, use_bias=False):
-        super(SpGraphAttentionLayerV0, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.alpha = alpha
-        self.use_bias = use_bias
-        self.curvature = curvature
-
-        self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=use_bias)
-
-        self.a = nn.Parameter(torch.zeros(size=(1, 2 * out_features)))
-        nn.init.xavier_normal_(self.a.data, gain=1.414)
-
-        self.dropout = nn.Dropout(dropout)
-        self.leakyrelu = nn.LeakyReLU(self.alpha)
-        self.special_spmm = SpecialSpmm()
-        self.act = activation    
-    
-    def forward(self, input, adj):
-        N = input.size()[0]
-        edge = adj._indices()
-        
-        h = self.linear(input)
-
-        # h: N x out
-        assert not torch.isnan(h).any()
-
-        # Self-attention on the nodes - Shared attention mechanism
-        dist = PoincareBall.sqdist(h[edge[0, :], :], h[edge[1, :], :], c=self.curvature).unsqueeze(0)
-        edge_h = self.curvature / (self.curvature + dist)
-
-# =============================================================================
-#         # Calculates lambda for mobius mid-point
-#        ones = torch.ones(size=(N, 1))
-#        if h.is_cuda:
-#            ones = ones.cuda()
-#         l = 1 / torch.sqrt(1. - ((torch.norm(h, dim=-1) / self.curvature)**2).clamp_min(PoincareBall.min_norm)).unsqueeze(-1)
-#         l_sum = self.special_spmm(indices=edge, values=l[edge[1, :], :].squeeze(), shape=torch.Size([N, N]), b=ones)
-#         h_ = (l * h).div(l_sum)
-# =============================================================================
-        
-        ########################Euclidean Block (START)########################
-        h = PoincareBall.poincare2euclidean(h, c=self.curvature)
-        edge_h = PoincareBall.poincare2euclidean(edge_h, c=self.curvature)
-
-        edge_e = torch.exp(-self.leakyrelu(edge_h.squeeze()))
-        
-        assert not torch.isnan(edge_e).any()
-        # edge_e: E
-
-        ones = torch.ones(size=(N, 1))
-        if h.is_cuda:
-            ones = ones.cuda()
-        e_rowsum = self.special_spmm(indices=edge, values=edge_e, shape=torch.Size([N, N]), b=ones)
-        # e_rowsum: N x 1
-
-        edge_e = self.dropout(edge_e)
-        # edge_e: E
-
-        h_prime = self.special_spmm(indices=edge, values=edge_e, shape=torch.Size([N, N]), b=h)
-        assert not torch.isnan(h_prime).any()
-        # h_prime: N x out
-
-        h_prime = h_prime.div(e_rowsum)
-        # h_prime: N x out
-        assert not torch.isnan(h_prime).any()
-        out = self.act(h_prime)
-        ########################Euclidean Block (END)##########################
-        return PoincareBall.euclidean2poincare(out, c=self.curvature)
-     
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 # ===============================Good Working (only ball making)==============    
-class SpGraphAttentionLayerV1(nn.Module):
+class SpGraphAttentionLayer(nn.Module):
     """
     Sparse version GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
     def __init__(self, in_features, out_features, dropout, alpha, activation, curvature = 1, use_bias=False):
-        super(SpGraphAttentionLayerV1, self).__init__()
+        super(SpGraphAttentionLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.alpha = alpha
@@ -281,14 +201,16 @@ class SpGraphAttentionLayerV1(nn.Module):
 
 
 
-class GraphAttentionLayerV0(nn.Module):
+
+
+class GraphAttentionLayer(nn.Module):
     def __init__(self, input_dim, output_dim, dropout, activation, alpha, nheads, concat, curvature, use_bias):
         """Sparse version of GAT."""
-        super(GraphAttentionLayerV0, self).__init__()
+        super(GraphAttentionLayer, self).__init__()
         self.dropout = dropout
         self.output_dim = output_dim
         self.curvature = curvature
-        self.attentions = [SpGraphAttentionLayerV0(input_dim,
+        self.attentions = [SpGraphAttentionLayer(input_dim,
                                                  output_dim,
                                                  dropout=dropout,
                                                  alpha=alpha,
@@ -306,41 +228,7 @@ class GraphAttentionLayerV0(nn.Module):
         x = F.dropout(x, self.dropout, training=self.training)
         x = PoincareBall.poincare2euclidean(x, c=self.curvature)
         if self.concat:
-            h = torch.cat([att(x, adj) for att in self.attentions], dim=1)
-        else:
-            h_cat = torch.cat([att(x, adj).view((-1, self.output_dim, 1)) for att in self.attentions], dim=2)
-            h = torch.mean(h_cat, dim=2)
-        h = PoincareBall.euclidean2poincare(h, c=self.curvature)
-        h = F.dropout(h, self.dropout, training=self.training)
-        return (h, adj)
-
-
-class GraphAttentionLayerV1(nn.Module):
-    def __init__(self, input_dim, output_dim, dropout, activation, alpha, nheads, concat, curvature, use_bias):
-        """Sparse version of GAT."""
-        super(GraphAttentionLayerV1, self).__init__()
-        self.dropout = dropout
-        self.output_dim = output_dim
-        self.curvature = curvature
-        self.attentions = [SpGraphAttentionLayerV1(input_dim,
-                                                 output_dim,
-                                                 dropout=dropout,
-                                                 alpha=alpha,
-                                                 activation=activation,
-                                                 curvature=curvature,
-                                                 use_bias=use_bias) for _ in range(nheads)]
-        self.concat = concat
-        for i, attention in enumerate(self.attentions):
-            self.add_module('attention_{}'.format(i), attention)
-
-    def forward(self, input):
-        x, adj = input
-        if torch.any(torch.isnan(x)):
-            raise ValueError('input tensor has NaaN values')
-        x = F.dropout(x, self.dropout, training=self.training)
-        x = PoincareBall.poincare2euclidean(x, c=self.curvature)
-        if self.concat:
-            h = torch.cat([att(x, adj) for att in self.attentions], dim=1)
+            h = PoincareBall.concat(torch.stack([att(x, adj) for att in self.attentions], dim=-2))
         else:
             h_cat = torch.cat([att(x, adj).view((-1, self.output_dim, 1)) for att in self.attentions], dim=2)
             h = torch.mean(h_cat, dim=2)
