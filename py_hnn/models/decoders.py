@@ -99,13 +99,13 @@ class HATDecoder(Decoder):
         self.decode_adj = True
 
 
-class PGATDecoderV1(Decoder):
+class PGATDecoder(Decoder):
     """
     Graph Attention Decoder.
     """
 
     def __init__(self, c, args):
-        super(PGATDecoderV1, self).__init__(c)
+        super(PGATDecoder, self).__init__(c)
         self.cls = PGraphAttentionLayer(input_dim=args.dim, 
                                        output_dim=args.n_classes, 
                                        dropout=args.dropout, 
@@ -147,7 +147,7 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
-    'PGATV1': PGATDecoderV1,
+    'PGAT': GATDecoder,
     'PGCN': PGCNDecoder,
     'HAT': HATDecoder,
     'HGATV0': LinearDecoder,

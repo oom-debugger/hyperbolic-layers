@@ -15,7 +15,6 @@ from torch.nn.modules.module import Module
 
 import layers.hyp_layers as hyp_layers
 from manifolds.poincare import PoincareBall
-from manifolds.hyperboloid import Hyperboloid
 from layers.att_layers import SpecialSpmm
 
 

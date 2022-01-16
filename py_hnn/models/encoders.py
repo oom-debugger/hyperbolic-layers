@@ -221,13 +221,13 @@ class HAT(Encoder):
         return super(HAT, self).encode(x_hyp, adj)
 
 
-class PGATV1(Encoder):
+class PGAT(Encoder):
     """
     Poincare Graph Attention Networks.
     """
 
     def __init__(self, c, args):
-        super(PGATV1, self).__init__(c)
+        super(PGAT, self).__init__(c)
         assert args.num_layers > 0
         dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
         gat_layers = []
@@ -238,7 +238,7 @@ class PGATV1(Encoder):
             out_dim = dims[i + 1] // args.n_heads
             concat = True
             gat_layers.append(
-                    p_layer.GraphAttentionLayerV1(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat, self.curvatures[i], args.bias))
+                    p_layer.GraphAttentionLayer(in_dim, out_dim, args.dropout, act, args.alpha, args.n_heads, concat, self.curvatures[i], args.bias))
 
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
@@ -246,7 +246,7 @@ class PGATV1(Encoder):
     def encode(self, x, adj):
         # convert the Euclidean embeddings to poincare embeddings
         x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0])
-        return super(PGATV1, self).encode(x, adj)
+        return super(PGAT, self).encode(x, adj)
 
 
 class HGAT(Encoder):
