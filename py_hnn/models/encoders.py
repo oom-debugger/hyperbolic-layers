@@ -243,7 +243,6 @@ class PGAT(Encoder):
         super(PGAT, self).__init__(c)
         self.scale = args.scale
         self.manifold = getattr(manifolds, args.manifold)()
-
         assert args.num_layers > 0
         dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
         gat_layers = []
