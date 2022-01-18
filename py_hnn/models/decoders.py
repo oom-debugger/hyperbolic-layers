@@ -1,5 +1,6 @@
 """Graph decoders."""
 import manifolds
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -8,6 +9,8 @@ from layers.layers import GraphConvolution, Linear
 from layers.poincare_layers import GraphConvolution as PGraphConvolution
 from layers.hyp_att_layers import GraphAttentionLayer as HGraphAttentionLayer
 from layers.poincare_layers import GraphAttentionLayer as PGraphAttentionLayer
+
+from manifolds.poincare import PoincareBall
 
 
 class Decoder(nn.Module):
@@ -47,13 +50,19 @@ class PGCNDecoder(Decoder):
     def __init__(self, c, args):
         super(PGCNDecoder, self).__init__(c)
         act = lambda x: x
-        self.cls = PGraphConvolution(in_features=args.dim, 
+        self.manifold = getattr(manifolds, args.manifold)()
+        self.cls = PGraphConvolution(manifold=self.manifold,
+                                     in_features=args.dim, 
                                      out_features=args.n_classes, 
                                      dropout=args.dropout, 
                                      act=act, 
                                      curvature=self.c, 
                                      use_bias=args.bias)
         self.decode_adj = True
+
+    def update_curvature(self, c):
+        self.c = torch.Tensor([c])
+        self.cls.update_curvature(self.c)
 
 
 class GATDecoder(Decoder):
@@ -99,13 +108,13 @@ class HATDecoder(Decoder):
         self.decode_adj = True
 
 
-class PGATDecoderV1(Decoder):
+class PGATDecoder(Decoder):
     """
     Graph Attention Decoder.
     """
 
     def __init__(self, c, args):
-        super(PGATDecoderV1, self).__init__(c)
+        super(PGATDecoder, self).__init__(c)
         self.cls = PGraphAttentionLayer(input_dim=args.dim, 
                                        output_dim=args.n_classes, 
                                        dropout=args.dropout, 
@@ -118,7 +127,16 @@ class PGATDecoderV1(Decoder):
 #                                       use_bias= args.bias)
         self.decode_adj = True
 
+    def update_curvature(self, c):
+        self.c = torch.Tensor([c])
+        self.cls.update_curvature(self.c)
 
+
+    def decode(self, x, adj):
+        out = super(PGATDecoder, self).decode(x, adj)
+#        out = PoincareBall.poincare2euclidean(out, c=self.c)
+        return out
+    
 
 class LinearDecoder(Decoder):
     """
@@ -147,9 +165,12 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
-    'PGATV1': PGATDecoderV1,
+    'PGAT': GATDecoder,
     'PGCN': PGCNDecoder,
-    'HAT': HATDecoder,
+    # Note: if the manifold is Poincare, PGCNDecoder works better but for Hyperboloid, even the lindear does not work... so, our technicque only works if the space is
+    # PoincareBall model.
+#    'PGCN': LinearDecoder,
+    'HAT': LinearDecoder,
     'HGATV0': LinearDecoder,
     'HNN': LinearDecoder,
     'HGCN': LinearDecoder,

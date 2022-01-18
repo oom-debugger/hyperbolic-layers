@@ -21,48 +21,57 @@ from models.base_models import NCModel, LPModel
 from utils.data_utils import load_data
 from utils.train_utils import get_dir_name, format_metrics
 
+from models.encoders import PGAT, PGCN, HAT
+
 torch.autograd.set_detect_anomaly(True)
+
+
+def _get_save_dir(args):
+    if not args.save_dir:
+        dt = datetime.datetime.now()
+        date = f"{dt.year}_{dt.month}_{dt.day}"
+        models_dir = os.path.join(os.environ['LOG_DIR'], args.task, date)
+        save_dir = get_dir_name(models_dir)
+    else:
+        save_dir = args.save_dir
+    logging.basicConfig(level=logging.INFO,
+                        handlers=[
+                            logging.FileHandler(os.path.join(save_dir, 'log.txt')),
+                            logging.StreamHandler()
+                        ])
+    return save_dir
+ 
 
 def detaching_loss(dic):
     res = {}
     for k,v in dic.items():
         if k == 'loss':
-            v = v.detach().numpy()
+            v = v.detach().cpu().clone().numpy()
         res.update({k: v.item()})
-    return res
-    
+    return res    
+
 
 def train(args):
+    logging.getLogger().setLevel(logging.INFO)
+
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if int(args.double_precision):
         torch.set_default_dtype(torch.float64)
     if int(args.cuda) >= 0:
         torch.cuda.manual_seed(args.seed)
-    args.device = 'cuda:' + str(args.cuda) if int(args.cuda) >= 0 else 'cpu'
-    args.patience = args.epochs if not args.patience else  int(args.patience)
-    logging.getLogger().setLevel(logging.INFO)
-    if args.save:
-        if not args.save_dir:
-            dt = datetime.datetime.now()
-            date = f"{dt.year}_{dt.month}_{dt.day}"
-            models_dir = os.path.join(os.environ['LOG_DIR'], args.task, date)
-            save_dir = get_dir_name(models_dir)
-        else:
-            save_dir = args.save_dir
-        logging.basicConfig(level=logging.INFO,
-                            handlers=[
-                                logging.FileHandler(os.path.join(save_dir, 'log.txt')),
-                                logging.StreamHandler()
-                            ])
-
-    logging.info(f'Using: {args.device}')
     logging.info("Using seed {}.".format(args.seed))
 
+    args.device = 'cuda:' + str(args.cuda) if int(args.cuda) >= 0 else 'cpu'
+    logging.info(f'Using: {args.device}')
+
+    args.patience = args.epochs if not args.patience else  int(args.patience)
+    save_dir = _get_save_dir(args)
+    _BEST_MODEL_PATH = os.path.join(save_dir, 'model.pth')
     # Load data
     data = load_data(args, os.path.join(os.environ['DATAPATH'], args.dataset))
     args.n_nodes, args.feat_dim = data['features'].shape
-    # TODO(mehrdad): try to run this first to make sure we can some good accuracy numbers for hyperbolic GAT.
+    # TODO(mehrdad): Clean up this part. we better off not overriding the args params.
     if args.task == 'nc':
         Model = NCModel
         args.n_classes = int(data['labels'].max() + 1)
@@ -91,15 +100,16 @@ def train(args):
         step_size=int(args.lr_reduce_freq),
         gamma=float(args.gamma)
     )
-    # TODO(mehrdad): Print the detailed parameters in a log file.
-    print("=================================================================")
-    print(model)
-    for p in model.parameters():
-        print(p.size())
-        print('-----')
-    print("=================================================================")
+#    # TODO(mehrdad): Print the detailed parameters in a log file.
+#    print("=================================================================")
+##    print(model)
+##    for p in model.parameters():
+##        print(p.size())
+##        print('-----')
+#    print("=================================================================")
     tot_params = sum([np.prod(p.size()) for p in model.parameters()])
     logging.info(f"Total number of parameters: {tot_params}")
+    # TODO(khatir): what does this part do?
     if args.cuda is not None and int(args.cuda) >= 0 :
         os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda)
         model = model.to(args.device)
@@ -114,6 +124,7 @@ def train(args):
     best_emb = None
     train_stats = pd.DataFrame()
     val_stats = pd.DataFrame()
+    curvature = args.c
     for epoch in range(args.epochs):
         t = time.time()
         model.train()
@@ -144,30 +155,26 @@ def train(args):
             if (epoch + 1) % args.log_freq == 0:
                 logging.info(" ".join(['Epoch: {:04d}'.format(epoch + 1), format_metrics(val_metrics, 'val')]))
             if model.has_improved(best_val_metrics, val_metrics):
+                torch.save(model.state_dict(), _BEST_MODEL_PATH)
                 best_test_metrics = model.compute_metrics(embeddings, data, 'test')
                 best_emb = embeddings.cpu()
                 if args.save:
                     np.save(os.path.join(save_dir, 'embeddings.npy'), best_emb.detach().numpy())
                 best_val_metrics = val_metrics
+                best_val_metrics.update({'curvature': curvature})
                 counter = 0
             else:
                 counter += 1
+                if args.curvature_patience and counter % int(args.curvature_patience) == 0:
+                    if isinstance(model.encoder, (PGAT, PGCN, HAT)):
+                        curvature = curvature * args.c_coeff
+                        model.update_curvature(curvature)
+                        model.load_state_dict(torch.load(_BEST_MODEL_PATH))
+                        logging.info("increasing the curvature. new curvature == {:02f}".format(curvature))
+                        logging.info("best validatoin metric so far...  " + " ".join(['Epoch: {:04d}'.format(epoch + 1), format_metrics(best_val_metrics, 'val')]))
                 if counter == args.patience and epoch > args.min_epochs:
                     logging.info("Early stopping")
                     break
-
-    # Saves the decorder's embeddings and well as the latent space (encoder's 
-    # embedding). It also saves the train and validation metric curves.
-    if args.save:
-        pred = model.encode(data['features'], data['adj_train_norm']).detach().cpu().numpy()
-        emb_df = pd.DataFrame(pred, columns = [f'dim_{i}' for i in range(0, pred.shape[1])])
-        dec_pred = model.decoder.decode(embeddings, data['adj_train_norm']).t().detach().cpu().numpy()
-        for i in range(0, dec_pred.shape[0]):
-            emb_df[f'dec_dim_{i}'] = dec_pred[i].tolist()
-        emb_df['label'] = data['labels']
-        emb_df.to_csv(os.path.join(save_dir, f"embeddings_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
-        train_stats.to_csv(os.path.join(save_dir, f"train_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
-        val_stats.to_csv(os.path.join(save_dir, f"val_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
 
 
     logging.info("Optimization Finished!")
@@ -179,15 +186,34 @@ def train(args):
     logging.info(" ".join(["Val set results:", format_metrics(best_val_metrics, 'val')]))
     logging.info(" ".join(["Test set results:", format_metrics(best_test_metrics, 'test')]))
     if args.save:
-        np.save(os.path.join(save_dir, 'embeddings.npy'), best_emb.cpu().detach().numpy())
+        # Saves the decorder's embeddings and well as the latent space (encoder's 
+        # embedding). It also saves the train and validation metric curves as timeseries in a readable format (csv)
+        
+        # Load the model
+        model.load_state_dict(torch.load(_BEST_MODEL_PATH))
+        pred = model.encode(data['features'], data['adj_train_norm']).detach().cpu().numpy()
+        emb_df = pd.DataFrame(pred, columns = [f'dim_{i}' for i in range(0, pred.shape[1])])
+# =============================================================================
+#         # TODO(mehrdad): remove the decode part. it is task dependent
+#         dec_pred = model.decoder.decode(embeddings, data['adj_train_norm']).t().detach().cpu().numpy()
+#         for i in range(0, dec_pred.shape[0]):
+#             emb_df[f'dec_dim_{i}'] = dec_pred[i].tolist()
+#         emb_df['label'] = data['labels']
+# =============================================================================
+        emb_df.to_csv(os.path.join(save_dir, f"embeddings_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+        train_stats.to_csv(os.path.join(save_dir, f"train_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+        val_stats.to_csv(os.path.join(save_dir, f"val_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
+        
         if hasattr(model.encoder, 'att_adj'):
             filename = os.path.join(save_dir, args.dataset + '_att_adj.p')
             pickle.dump(model.encoder.att_adj.cpu().to_dense(), open(filename, 'wb'))
             print('Dumped attention adj: ' + filename)
 
         json.dump(vars(args), open(os.path.join(save_dir, 'config.json'), 'w'))
-        torch.save(model.state_dict(), os.path.join(save_dir, 'model.pth'))
         logging.info(f"Saved model in {save_dir}")
+        # TODO(khatir):  else: Delete the save_model dir but make sure that 
+        # the directory was non-existence before the training
+        
 
 if __name__ == '__main__':
     args = parser.parse_args()

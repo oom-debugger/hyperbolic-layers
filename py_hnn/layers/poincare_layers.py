@@ -11,24 +11,32 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from torch.nn.modules.module import Module
 
 import layers.hyp_layers as hyp_layers
 from manifolds.poincare import PoincareBall
-from manifolds.hyperboloid import Hyperboloid
 from layers.att_layers import SpecialSpmm
 
 
-class Linear(nn.Module):
+class AdjustableModule(nn.Module):
+
+    def __init__(self, curvature):
+        super(AdjustableModule, self).__init__()
+        self.curvature = curvature
+    
+    def update_curvature(self, curvature):
+        self.curvature = curvature
+
+
+class Linear(AdjustableModule):
     """
     Poincare linear layer.
     """
 
     def __init__(self, in_features, out_features, curvature, dropout, use_bias):
-        super(Linear, self).__init__()
+        super(Linear, self).__init__(curvature)
+        self.manifold = PoincareBall
         self.in_features = in_features
         self.out_features = out_features
-        self.curvature = curvature
         self.dropout = dropout
         self.use_bias = use_bias
         if use_bias:
@@ -37,6 +45,7 @@ class Linear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+#        init.xavier_normal_(self.weight, gain=math.sqrt(2))
         init.xavier_uniform_(self.weight, gain=math.sqrt(2))
         if self.use_bias:
             init.constant_(self.bias, 0)
@@ -49,11 +58,11 @@ class Linear(nn.Module):
         
         """
         drop_weight = F.dropout(self.weight, self.dropout, training=self.training)
-        res = PoincareBall.mobius_matvec(drop_weight, x, self.curvature)
+        res = self.manifold.mobius_matvec(drop_weight, x, self.curvature)
         if self.use_bias:
-            p_bias = PoincareBall.euclidean2poincare(self.bias, c=self.curvature)
+            p_bias = self.manifold.euclidean2poincare(self.bias, c=self.curvature)
             # mobius addition gaurantuees that the result is within the poincare ball.
-            res = PoincareBall.mobius_add(res, p_bias, c=self.curvature) 
+            res = self.manifold.mobius_add(res, p_bias, c=self.curvature) 
         return res
 
     def extra_repr(self):
@@ -62,21 +71,22 @@ class Linear(nn.Module):
         )
 
 
-class Act(Module):
+class Act(AdjustableModule):
     """
     Hyperbolic activation layer.
     """
 
     def __init__(self, manifold, c_in, c_out, act):
-        super(Act, self).__init__()
+        super(Act, self).__init__(c_in)
+        self.manifold = manifold
         self.c_in = c_in
         self.c_out = c_out
         self.act = act
 
     def forward(self, x):
-        xt = self.act(PoincareBall.logmap0(x, c=self.c_in))
-        xt1 = PoincareBall.proj_tan0(xt, c=self.c_out)
-        out = PoincareBall.proj(PoincareBall.expmap0(xt1, c=self.c_out), c=self.c_out)
+        xt = self.act(self.manifold.logmap0(x, c=self.c_in))
+        xt1 = self.manifold.proj_tan0(xt, c=self.c_out)
+        out = self.manifold.proj(self.manifold.expmap0(xt1, c=self.c_out), c=self.c_out)
         return out
 
     def extra_repr(self):
@@ -85,20 +95,24 @@ class Act(Module):
         )
 
 
-class GraphConvolution(Module):
+class GraphConvolution(AdjustableModule):
     """
     Simple Poincare GCN layer.
     """
 
-    def __init__(self, in_features, out_features, dropout, act, curvature = 1, use_bias=False):
-        super(GraphConvolution, self).__init__()
-        self.curvature = curvature
-        self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=use_bias)
+    def __init__(self, manifold, in_features, out_features, dropout, act, curvature = 1, use_bias=False):
+        super(GraphConvolution, self).__init__(curvature)
+        self.manifold = manifold
 
-        self.act = hyp_layers.HypAct(PoincareBall, self.curvature, self.curvature, act)
+        self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=use_bias)
+        self.act = Act(self.manifold, self.curvature, self.curvature, act)
 
         self.in_features = in_features
         self.out_features = out_features
+
+    def update_curvature(self, c):
+        super(GraphConvolution, self).update_curvature(c)
+        self.linear.update_curvature(c)
 
     def forward(self, input):
         """The input must be already in poincare ball.
@@ -107,13 +121,16 @@ class GraphConvolution(Module):
 
         hidden = self.linear(x)
         # Doing the convolution in Euclidean space and scaling it back to poincare.
-        hidden = PoincareBall.poincare2euclidean(hidden, c=self.curvature)
+#        hidden = PoincareBall.poincare2euclidean(hidden, c=self.curvature)
+        hidden = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(hidden, self.curvature), c=self.curvature), c=self.curvature)
 
         if adj.is_sparse:
             support = torch.spmm(adj, hidden)
         else:
             support = torch.mm(adj, hidden)
-        support = PoincareBall.euclidean2poincare(support, c=self.curvature)
+#        support = PoincareBall.euclidean2poincare(support, c=self.curvature)
+        support = self.manifold.proj_tan0(self.manifold.logmap0(support, c=self.curvature), c=self.curvature)
+
         support = self.act(support)
         return support, adj
 
@@ -124,18 +141,16 @@ class GraphConvolution(Module):
         )
 
 
-# ===============================Good Working (only ball making)==============    
-class SpGraphAttentionLayer(nn.Module):
+class SpGraphAttentionLayer(AdjustableModule):
     """
     Sparse version GAT layer, similar to https://arxiv.org/abs/1710.10903
     """
     def __init__(self, in_features, out_features, dropout, alpha, activation, curvature = 1, use_bias=False):
-        super(SpGraphAttentionLayer, self).__init__()
+        super(SpGraphAttentionLayer, self).__init__(curvature)
         self.in_features = in_features
         self.out_features = out_features
         self.alpha = alpha
         self.use_bias = use_bias
-        self.curvature = curvature
 
         self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=use_bias)
 
@@ -146,6 +161,10 @@ class SpGraphAttentionLayer(nn.Module):
         self.leakyrelu = nn.LeakyReLU(self.alpha)
         self.special_spmm = SpecialSpmm()
         self.act = activation    
+
+    def update_curvature(self, c):
+        super(SpGraphAttentionLayer, self).update_curvature(c)
+        self.linear.update_curvature(c)
 
     def forward(self, input, adj):
         N = input.size()[0]
@@ -200,16 +219,12 @@ class SpGraphAttentionLayer(nn.Module):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
-
-
-
-class GraphAttentionLayer(nn.Module):
+class GraphAttentionLayer(AdjustableModule):
     def __init__(self, input_dim, output_dim, dropout, activation, alpha, nheads, concat, curvature, use_bias):
         """Sparse version of GAT."""
-        super(GraphAttentionLayer, self).__init__()
+        super(GraphAttentionLayer, self).__init__(curvature)
         self.dropout = dropout
         self.output_dim = output_dim
-        self.curvature = curvature
         self.attentions = [SpGraphAttentionLayer(input_dim,
                                                  output_dim,
                                                  dropout=dropout,
@@ -220,6 +235,11 @@ class GraphAttentionLayer(nn.Module):
         self.concat = concat
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
+
+    def update_curvature(self, c):
+        super(GraphAttentionLayer, self).update_curvature(c)
+        for layer in self.attentions:
+            layer.update_curvature(c)
 
     def forward(self, input):
         x, adj = input

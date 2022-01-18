@@ -12,6 +12,8 @@ import models.encoders as encoders
 from models.decoders import model2decoder
 from utils.eval_utils import acc_f1
 
+from models.decoders import PGATDecoder
+
 
 class BaseModel(nn.Module):
     """
@@ -33,6 +35,11 @@ class BaseModel(nn.Module):
         self.nnodes = args.n_nodes
         self.encoder = getattr(encoders, args.model)(self.c, args)
 
+    def update_curvature(self, c):
+        self.c = c
+        self.encoder.update_curvature(c)
+        if self.decoder and isinstance(self.decoder, PGATDecoder):
+            self.decoder.update_curvature(c)
 
     def encode(self, x, adj):
         if self.manifold.name == 'Hyperboloid':

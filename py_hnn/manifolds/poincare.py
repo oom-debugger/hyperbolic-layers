@@ -405,7 +405,7 @@ class PoincareBall(Manifold):
         return torch.stack(h)
         
     @classmethod
-    def concat(self, v):
+    def concat(self, v, c = None):
         """Concatnates a matrix of dim (M, N) across the last dimension.
         
         Note: of the inputs are given as a batch, it assumes that dim (B, M, N)
@@ -421,6 +421,7 @@ class PoincareBall(Manifold):
             A tensor of dim(M*N) (or dim(B, M*N in case of batch inputs)) in 
             the poincare ball of the same radius.
         """
+        del c
         concat_dim = 1 if len(v.shape) == 3 else 0
         a = sc.beta(v.shape[concat_dim]*v.shape[-1]/2, 0.5) / sc.beta(v.shape[-1]/2, 0.5)
         # Note that the following multiplication should not be a mobius mul. 
@@ -451,17 +452,17 @@ class PoincareBall(Manifold):
         return torch.stack(torch.split(tensor=v*a, split_size_or_sections=int(v.shape[-1]/m), dim=-1), dim=split_dim)
     
     @classmethod
-    def euclidean2poincare(self, x, c):
+    def euclidean2poincare(self, x, c, scale = 1):
         """Approximates Euclidean vector to poincare ball across the last dimension.
         """
         p_c = c[0] * PoincareBall.max_norm
-        norm = torch.norm(x, dim=-1).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max)
+        norm = torch.norm(x, dim=-1).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max) / scale
         x_exp = torch.exp(-norm).clamp(min=PoincareBall.min_norm, max=PoincareBall.euclidean_max)
         coef = - c  * (1 - x_exp) / (1 + x_exp)
         return ((coef.unsqueeze(-1) * x).t() / norm).t().clamp(min=-p_c, max=p_c)
   
     @classmethod
-    def poincare2euclidean(self, p, c):
+    def poincare2euclidean(self, p, c, scale = 1):
         """
         x = ln((1-p)/(1+p))
         """
@@ -469,4 +470,4 @@ class PoincareBall(Manifold):
         norm = torch.norm(p, dim=-1)
         lg = torch.log(((c - norm)/(c + norm)).clamp_min(PoincareBall.min_norm)).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)
         coef = (-lg / norm.clamp_min(PoincareBall.min_norm)).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)
-        return (coef.unsqueeze(-1) *  p).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)
+        return scale * (coef.unsqueeze(-1) *  p).clamp(min=-PoincareBall.euclidean_max, max=PoincareBall.euclidean_max)

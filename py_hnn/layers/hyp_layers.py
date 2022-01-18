@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.modules.module import Module
 
-#from layers.att_layers import DenseAtt
+from layers.att_layers import DenseAtt
 
 
 def get_dim_act_curv(args):
@@ -39,15 +39,26 @@ def get_dim_act_curv(args):
     return dims, acts, curvatures
 
 
-class HNNLayer(nn.Module):
+class AdjustableModule(nn.Module):
+
+    def __init__(self, curvature):
+        super(AdjustableModule, self).__init__()
+        self.c = curvature
+    
+    def update_curvature(self, curvature):
+        self.c = curvature
+
+
+class HNNLayer(AdjustableModule):
     """
     Hyperbolic neural networks layer.
     """
 
     def __init__(self, manifold, in_features, out_features, c, dropout, act, use_bias):
-        super(HNNLayer, self).__init__()
+        super(HNNLayer, self).__init__(c)
         self.linear = HypLinear(manifold, in_features, out_features, c, dropout, use_bias)
         self.hyp_act = HypAct(manifold, c, c, act)
+
 
     def forward(self, x):
         h = self.linear.forward(x)
@@ -55,16 +66,21 @@ class HNNLayer(nn.Module):
         return h
 
 
-class HyperbolicGraphConvolution(nn.Module):
+class HyperbolicGraphConvolution(AdjustableModule):
     """
     Hyperbolic graph convolution layer.
     """
 
     def __init__(self, manifold, in_features, out_features, c_in, c_out, dropout, act, use_bias, use_att, local_agg):
-        super(HyperbolicGraphConvolution, self).__init__()
+        super(HyperbolicGraphConvolution, self).__init__(c_in)
         self.linear = HypLinear(manifold, in_features, out_features, c_in, dropout, use_bias)
         self.agg = HypAgg(manifold, c_in, out_features, dropout, use_att, local_agg)
         self.hyp_act = HypAct(manifold, c_in, c_out, act)
+
+    def update_curvature(self, curvature):
+        super(HyperbolicGraphConvolution, self).update_curvature(curvature)
+        self.c_in = curvature
+        self.c_out = curvature
 
     def forward(self, input):
         x, adj = input
@@ -75,13 +91,13 @@ class HyperbolicGraphConvolution(nn.Module):
         return output
 
 
-class HypLinear(nn.Module):
+class HypLinear(AdjustableModule):
     """
     Hyperbolic linear layer.
     """
 
     def __init__(self, manifold, in_features, out_features, c, dropout, use_bias):
-        super(HypLinear, self).__init__()
+        super(HypLinear, self).__init__(c)
         self.manifold = manifold
         self.in_features = in_features
         self.out_features = out_features
@@ -128,16 +144,15 @@ class HypLinear(nn.Module):
         )
 
 
-class HypAgg(Module):
+class HypAgg(AdjustableModule):
     """
     Hyperbolic aggregation layer.
     """
 
     def __init__(self, manifold, c, in_features, dropout, use_att, local_agg):
-        super(HypAgg, self).__init__()
+        super(HypAgg, self).__init__(c)
         self.manifold = manifold
         self.c = c
-
         self.in_features = in_features
         self.dropout = dropout
         self.local_agg = local_agg
@@ -175,18 +190,23 @@ class HypAgg(Module):
         return 'c={}'.format(self.c)
 
 
-class HypAct(Module):
+class HypAct(AdjustableModule):
     """
     Hyperbolic activation layer.
     """
 
     def __init__(self, manifold, c_in, c_out, act):
-        super(HypAct, self).__init__()
+        super(HypAct, self).__init__(c_in)
         self.manifold = manifold
         self.c_in = c_in
         self.c_out = c_out
         self.act = act
-
+        
+    def update_curvature(self, curvature):
+        super(HypAct, self).update_curvature(curvature)
+        self.c_in = curvature
+        self.c_out = curvature
+        
     def forward(self, x):
         xt = self.act(self.manifold.logmap0(x, c=self.c_in))
         xt1 = self.manifold.proj_tan0(xt, c=self.c_out)

@@ -1,5 +1,5 @@
 """Euclidean manifold."""
-
+import torch
 from manifolds.base import Manifold
 
 
@@ -65,3 +65,6 @@ class Euclidean(Manifold):
 
     def ptransp0(self, x, v, c):
         return x + v
+    
+    def retr(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        return x + u

@@ -3,6 +3,7 @@
 import torch
 
 from manifolds.base import Manifold
+from manifolds.poincare import PoincareBall
 
 from utils.math_utils import arcosh, cosh, sinh 
 
@@ -207,3 +208,12 @@ class Hyperboloid(Manifold):
             eucl_squared_norm = (x * x).sum(dim=-1, keepdim=True)
             return sqrtK * torch.cat((K + eucl_squared_norm, 2 * sqrtK * x), dim=-1) / (K - eucl_squared_norm).clamp_min(Hyperboloid.min_norm)
 
+    @classmethod
+    def concat(self, v, c):
+        """
+        Note that the output dimension is (input_dim-1) * n + 1
+        """
+        p = PoincareBall.from_hyperboloid(v, c)
+        p = PoincareBall.concat(p)
+        return Hyperboloid.from_poincare(p, c)
+        
