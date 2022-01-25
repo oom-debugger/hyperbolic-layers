@@ -42,6 +42,10 @@ class BaseModel(nn.Module):
             self.decoder.update_curvature(c)
 
     def encode(self, x, adj):
+#        num_nodes = x.shape[0]
+#        pos_emb = torch.range(start=1e-5, end=1, step=1/num_nodes).unsqueeze(-1) 
+#        x = torch.hstack([x, pos_emb])
+
         if self.manifold.name == 'Hyperboloid':
             o = torch.zeros_like(x)
             x = torch.cat([o[:, 0:1], x], dim=1)

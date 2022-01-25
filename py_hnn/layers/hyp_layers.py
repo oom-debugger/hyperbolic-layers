@@ -149,7 +149,7 @@ class HypAgg(AdjustableModule):
     Hyperbolic aggregation layer.
     """
 
-    def __init__(self, manifold, c, in_features, dropout, use_att, local_agg):
+    def __init__(self, manifold, c, in_features, dropout=0, use_att=False, local_agg=False):
         super(HypAgg, self).__init__(c)
         self.manifold = manifold
         self.c = c

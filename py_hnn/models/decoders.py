@@ -10,7 +10,7 @@ from layers.poincare_layers import GraphConvolution as PGraphConvolution
 from layers.hyp_att_layers import GraphAttentionLayer as HGraphAttentionLayer
 from layers.poincare_layers import GraphAttentionLayer as PGraphAttentionLayer
 
-from manifolds.poincare import PoincareBall
+from layers.hyp_layers import  HyperbolicGraphConvolution
 
 
 class Decoder(nn.Module):
@@ -42,6 +42,38 @@ class GCNDecoder(Decoder):
         self.cls = GraphConvolution(args.dim, args.n_classes, args.dropout, act, args.bias)
         self.decode_adj = True
 
+class HGCNDecoder(Decoder):
+    """
+    Graph Convolution Decoder.
+    """
+
+    def __init__(self, c, args):
+        super(HGCNDecoder, self).__init__(c)
+        act = lambda x: x
+        self.manifold = getattr(manifolds, args.manifold)()
+        self.cls = HyperbolicGraphConvolution(
+                manifold=self.manifold,
+                in_features=args.dim, 
+                out_features=args.n_classes, 
+                dropout=args.dropout, 
+                act=act, 
+                c_in =self.c,
+                c_out=self.c,
+                use_att=args.use_att, 
+                local_agg=args.local_agg,
+                use_bias=args.bias)
+        self.decode_adj = True
+
+    def update_curvature(self, c):
+        self.c = torch.Tensor([c])
+        self.cls.update_curvature(self.c)
+
+    def decode(self, x, adj):
+        x = super(HGCNDecoder, self).decode(x, adj)
+        return self.manifold.proj_tan0(self.manifold.logmap0(x, c=self.c), c=self.c)
+
+
+
 class PGCNDecoder(Decoder):
     """
     Graph Convolution Decoder.
@@ -63,6 +95,10 @@ class PGCNDecoder(Decoder):
     def update_curvature(self, c):
         self.c = torch.Tensor([c])
         self.cls.update_curvature(self.c)
+
+    def decode(self, x, adj):
+        return super(PGCNDecoder, self).decode(x, adj)
+
 
 
 class GATDecoder(Decoder):
@@ -107,6 +143,10 @@ class HATDecoder(Decoder):
                 use_bias= args.bias)
         self.decode_adj = True
 
+    def decode(self, x, adj):
+        x = super(HATDecoder, self).decode(x, adj)
+        return self.manifold.proj_tan0(self.manifold.logmap0(x, c=self.c), c=self.c)
+
 
 class PGATDecoder(Decoder):
     """
@@ -118,7 +158,7 @@ class PGATDecoder(Decoder):
         self.cls = PGraphAttentionLayer(input_dim=args.dim, 
                                        output_dim=args.n_classes, 
                                        dropout=args.dropout, 
-                                       activation=F.elu, 
+                                       activation=F.softmax, 
                                        alpha=args.alpha, 
                                        nheads=1, 
                                        concat=True,  
@@ -134,9 +174,8 @@ class PGATDecoder(Decoder):
 
     def decode(self, x, adj):
         out = super(PGATDecoder, self).decode(x, adj)
-#        out = PoincareBall.poincare2euclidean(out, c=self.c)
         return out
-    
+ 
 
 class LinearDecoder(Decoder):
     """
@@ -165,15 +204,18 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
-    'PGAT': GATDecoder,
+#    'PGAT': GATDecoder,
+    'PGAT': PGATDecoder,
     'PGCN': PGCNDecoder,
     # Note: if the manifold is Poincare, PGCNDecoder works better but for Hyperboloid, even the lindear does not work... so, our technicque only works if the space is
     # PoincareBall model.
 #    'PGCN': LinearDecoder,
-    'HAT': LinearDecoder,
+#    'HAT': LinearDecoder,
+    'HAT': HATDecoder,
     'HGATV0': LinearDecoder,
     'HNN': LinearDecoder,
-    'HGCN': LinearDecoder,
+#    'HGCN': HGCNDecoder,
+    'HGCN': HGCNDecoder,
     'MLP': LinearDecoder,
     'Shallow': LinearDecoder,
 }

@@ -121,8 +121,8 @@ class PGCN(Encoder):
 
     def encode(self, x, adj):
         # convert the Euclidean embeddings to poincare embeddings
-#        x = PoincareBall.poincare2euclidean(x, c=self.curvatures[0])
-        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.curvatures[0]), c=self.curvatures[0]), c=self.curvatures[0])
+        x = PoincareBall.poincare2euclidean(x, c=self.curvatures[0])
+#        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.curvatures[0]), c=self.curvatures[0]), c=self.curvatures[0])
         return super(PGCN, self).encode(x, adj)
   
 
@@ -248,6 +248,8 @@ class PGAT(Encoder):
         gat_layers = []
         for i in range(len(dims) - 1):
             in_dim, out_dim = dims[i], dims[i + 1]
+            # TODO(khatir): remove this after testing
+#            in_dim = in_dim + 1
             act = acts[i]
             assert dims[i + 1] % args.n_heads == 0
             out_dim = dims[i + 1] // args.n_heads
@@ -268,8 +270,8 @@ class PGAT(Encoder):
         
         
     def encode(self, x, adj):
-#        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.c), c=self.c), c=self.c)
         # convert the Euclidean embeddings to poincare embeddings
+        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.c), c=self.c), c=self.c)
         x = PoincareBall.euclidean2poincare(x, c=self.curvatures[0], scale=self.scale)
         return super(PGAT, self).encode(x, adj)
 

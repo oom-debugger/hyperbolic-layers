@@ -70,7 +70,6 @@ class Linear(AdjustableModule):
             self.in_features, self.out_features, self.curvature
         )
 
-
 class Act(AdjustableModule):
     """
     Hyperbolic activation layer.
@@ -93,6 +92,7 @@ class Act(AdjustableModule):
         return 'c_in={}, c_out={}'.format(
             self.c_in, self.c_out
         )
+
 
 
 class GraphConvolution(AdjustableModule):
@@ -121,15 +121,13 @@ class GraphConvolution(AdjustableModule):
 
         hidden = self.linear(x)
         # Doing the convolution in Euclidean space and scaling it back to poincare.
-#        hidden = PoincareBall.poincare2euclidean(hidden, c=self.curvature)
-        hidden = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(hidden, self.curvature), c=self.curvature), c=self.curvature)
+        hidden = PoincareBall.poincare2euclidean(hidden, c=self.curvature)
 
         if adj.is_sparse:
             support = torch.spmm(adj, hidden)
         else:
             support = torch.mm(adj, hidden)
-#        support = PoincareBall.euclidean2poincare(support, c=self.curvature)
-        support = self.manifold.proj_tan0(self.manifold.logmap0(support, c=self.curvature), c=self.curvature)
+        support = PoincareBall.euclidean2poincare(support, c=self.curvature)
 
         support = self.act(support)
         return support, adj
@@ -233,6 +231,8 @@ class GraphAttentionLayer(AdjustableModule):
                                                  curvature=curvature,
                                                  use_bias=use_bias) for _ in range(nheads)]
         self.concat = concat
+
+        
         for i, attention in enumerate(self.attentions):
             self.add_module('attention_{}'.format(i), attention)
 
@@ -248,7 +248,7 @@ class GraphAttentionLayer(AdjustableModule):
         x = F.dropout(x, self.dropout, training=self.training)
         x = PoincareBall.poincare2euclidean(x, c=self.curvature)
         if self.concat:
-            h = PoincareBall.concat(torch.stack([att(x, adj) for att in self.attentions], dim=-2))
+            h = PoincareBall.concat(torch.stack([att(x, adj) for att in self.attentions], dim=-2))            
         else:
             h_cat = torch.cat([att(x, adj).view((-1, self.output_dim, 1)) for att in self.attentions], dim=2)
             h = torch.mean(h_cat, dim=2)

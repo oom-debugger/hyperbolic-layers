@@ -142,12 +142,13 @@ class GraphAttentionLayer(AdjustableModule):
         if self.concat:
             if isinstance(self.manifold, Euclidean):
                 h = torch.cat([att(x, adj) for att in self.attentions], dim=1)
-            else:
+            elif self.nheads > 1:
                 h = torch.stack([att(x, adj) for att in self.attentions], dim=-2)
                 h = self.manifold.concat(h, c=self.curvature).squeeze()
-                if self.nheads > 1 and isinstance(self.manifold, Hyperboloid):
+                if isinstance(self.manifold, Hyperboloid):
                     h = self.linear_out(h)
-
+            else:  # No concat
+                h = self.attentions[0](x, adj)
         else:
             raise ValueError('aggregation is not supported ')
         h = F.dropout(h, self.dropout, training=self.training)
