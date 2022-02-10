@@ -27,6 +27,37 @@ class AdjustableModule(nn.Module):
         self.curvature = curvature
 
 
+class MobiousAdd(AdjustableModule):
+    """
+    Poincare linear layer.
+    """
+
+    def __init__(self, features, curvature):
+        super(MobiousAdd, self).__init__(curvature)
+        self.manifold = PoincareBall
+        self.features = features
+        self.bias = nn.Parameter(torch.Tensor(features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        init.constant_(self.bias, 0)
+
+    def forward(self, x):
+        """
+            x: a batch of vectors in mobius/hyperbolic space.
+        Returns:
+            a batch of vectors in the hyperbolic space.
+        
+        """
+        p_bias = self.bias
+#        p_bias = self.manifold.euclidean2poincare(p_bias, c=self.curvature)
+        p_bias = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(p_bias, self.curvature), c=self.curvature), c=self.curvature)
+        return self.manifold.mobius_add(x, p_bias, c=self.curvature) 
+
+    def extra_repr(self):
+        return 'features={}, c={}'.format(self.out_features, self.curvature)
+
+
 class Linear(AdjustableModule):
     """
     Poincare linear layer.
@@ -150,7 +181,10 @@ class SpGraphAttentionLayer(AdjustableModule):
         self.alpha = alpha
         self.use_bias = use_bias
 
-        self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=use_bias)
+#        self.linear = Linear(in_features, out_features, self.curvature, dropout, use_bias=False)
+        self.linear = nn.Linear(in_features, out_features, use_bias)
+        if use_bias:
+            self.add_bias = MobiousAdd(out_features, self.curvature)
 
         self.a = nn.Parameter(torch.zeros(size=(1, 2 * out_features)))
         nn.init.xavier_normal_(self.a.data, gain=1.414)
@@ -177,6 +211,8 @@ class SpGraphAttentionLayer(AdjustableModule):
         # and hence information loss. 
         # our initial reports showed 4% drop in test acc for NC task on pubmed.
         h = self.linear(input)
+        if self.use_bias:
+            h = self.add_bias(h)
         assert not torch.isnan(h).any()
 
         # Self-attention on the nodes - Shared attention mechanism
@@ -185,8 +221,10 @@ class SpGraphAttentionLayer(AdjustableModule):
         edge_h = PoincareBall.concat(torch.stack([h[edge[0, :], :], h[edge[1, :], :]], dim=-2)).t()
 
         # edge: 2*D x E
-        h = PoincareBall.poincare2euclidean(h, c=self.curvature)
-        edge_h = PoincareBall.poincare2euclidean(edge_h, c=self.curvature)
+#        h = PoincareBall.poincare2euclidean(h, c=torch.Tensor([1]), scale=1)
+#        edge_h = PoincareBall.poincare2euclidean(edge_h, c=torch.Tensor([1]), scale=1)
+#        h = PoincareBall.poincare2euclidean(h, c=self.curvature, scale=1)
+#        edge_h = PoincareBall.poincare2euclidean(edge_h, c=self.curvature, scale=1)
         
         edge_e = torch.exp(-self.leakyrelu(self.a.mm(edge_h).squeeze()))
         assert not torch.isnan(edge_e).any()
@@ -209,7 +247,10 @@ class SpGraphAttentionLayer(AdjustableModule):
         # h_prime: N x out
         assert not torch.isnan(h_prime).any()
         out = self.act(h_prime)
-        out = PoincareBall.euclidean2poincare(out, c=self.curvature)
+
+        out = PoincareBall.euclidean2poincare(out, c=self.curvature, scale=10)
+#        out = PoincareBall.euclidean2poincare(out, c=torch.Tensor([1.0]), )
+
         return out
 
 

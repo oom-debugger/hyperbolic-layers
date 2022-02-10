@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-_MIN_NORM = 1e-8
+_MIN_NORM = 1e-5
 
 class DenseAtt(nn.Module):
     def __init__(self, in_features, dropout):
@@ -111,7 +111,7 @@ class SpGraphAttentionLayer(nn.Module):
         h_prime = h_prime.div(e_rowsum.clamp_min(_MIN_NORM))
         # h_prime: N x out
         assert not torch.isnan(h_prime).any()
-        return self.act(h_prime)
+        return self.act(h_prime).clamp(_MIN_NORM)
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'

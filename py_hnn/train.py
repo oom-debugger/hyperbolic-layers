@@ -198,7 +198,7 @@ def train(args):
 #         dec_pred = model.decoder.decode(embeddings, data['adj_train_norm']).t().detach().cpu().numpy()
 #         for i in range(0, dec_pred.shape[0]):
 #             emb_df[f'dec_dim_{i}'] = dec_pred[i].tolist()
-#         emb_df['label'] = data['labels']
+        emb_df['label'] = data['labels']
 # =============================================================================
         emb_df.to_csv(os.path.join(save_dir, f"embeddings_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
         train_stats.to_csv(os.path.join(save_dir, f"train_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))

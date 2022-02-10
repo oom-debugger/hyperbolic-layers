@@ -131,7 +131,7 @@ def bin_feat(feat, bins):
 
 
 def load_data_lp(dataset, use_feats, data_path):
-    if dataset in ['cora', 'pubmed']:
+    if dataset in ['cora', 'citeseer', 'pubmed']:
         adj, features = load_citation_data(dataset, use_feats, data_path)[:2]
     elif dataset == 'disease_lp':
         adj, features = load_synthetic_data(dataset, use_feats, data_path)[:2]
@@ -147,7 +147,7 @@ def load_data_lp(dataset, use_feats, data_path):
 
 
 def load_data_nc(dataset, use_feats, data_path, split_seed):
-    if dataset in ['cora', 'pubmed']:
+    if dataset in ['cora', 'citeseer', 'pubmed']:
         adj, features, labels, idx_train, idx_val, idx_test = load_citation_data(
             dataset, use_feats, data_path, split_seed
         )
@@ -180,12 +180,23 @@ def load_citation_data(dataset_str, use_feats, data_path, split_seed=None):
             else:
                 objects.append(pkl.load(f))
 
+# =============================================================================
     x, y, tx, ty, allx, ally, graph = tuple(objects)
     test_idx_reorder = parse_index_file(os.path.join(data_path, "ind.{}.test.index".format(dataset_str)))
     test_idx_range = np.sort(test_idx_reorder)
-
+    if dataset_str == 'citeseer':
+        # Fix citeseer dataset (there are some isolated nodes in the graph)
+        # Find isolated nodes, add them as zero-vecs into the right position
+        test_idx_range_full = range(min(test_idx_reorder), max(test_idx_reorder)+1)
+        tx_extended = sp.lil_matrix((len(test_idx_range_full), x.shape[1]))
+        tx_extended[test_idx_range-min(test_idx_range), :] = tx
+        tx = tx_extended
+        ty_extended = np.zeros((len(test_idx_range_full), y.shape[1]))
+        ty_extended[test_idx_range-min(test_idx_range), :] = ty
+        ty = ty_extended
     features = sp.vstack((allx, tx)).tolil()
-    features[test_idx_reorder, :] = features[test_idx_range, :]
+    features[test_idx_reorder, :] = features[test_idx_range, :]    
+# =============================================================================
 
     labels = np.vstack((ally, ty))
     labels[test_idx_reorder, :] = labels[test_idx_range, :]

@@ -11,6 +11,19 @@ def format_metrics(metrics, split):
     return " ".join(
             ["{}_{}: {:.4f}".format(split, metric_name, metric_val) for metric_name, metric_val in metrics.items()])
 
+def format_metrics_splits(metrics, split):
+    """Format metric in metric dict for logging."""
+            
+    split_metrics = []
+    for ind, value in metrics.items():
+        spt = []
+        for metric_name, metric_val in value.items():
+            if metric_val ==None:
+                metric_val = 0
+            spt.append("Split{}_{}_{}: {:.4f}".format(ind, split, metric_name, metric_val))
+        split_metrics.append(" ".join(spt))
+    return "\n".join(split_metrics)
+
 
 def get_dir_name(models_dir):
     """Gets a directory to save the model.
@@ -90,5 +103,3 @@ def add_flags_from_config(parser, config_dict):
                 f"Could not add flag for param {param} because it was already present."
             )
     return parser
-
-
