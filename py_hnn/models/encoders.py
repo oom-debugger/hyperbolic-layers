@@ -25,7 +25,7 @@ class Encoder(nn.Module):
     def __init__(self, c):
         super(Encoder, self).__init__()
         self.c = c
-            
+
     def encode(self, x, adj):
         if self.encode_graph:
             input = (x, adj)
@@ -112,13 +112,16 @@ class PGCN(Encoder):
         self.layers = nn.Sequential(*gc_layers)
         self.encode_graph = True
         self.scale = torch.Tensor([args.scale])
+        self.layer_norm = nn.LayerNorm(out_dim)
 
     def encode(self, x, adj):
         # convert the Euclidean embeddings to poincare embeddings
-        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
-#        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
+#        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
         x = super(PGCN, self).encode(x, adj)
+#        x = self.layer_norm(x)
         x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
+#        x = x * 1 / torch.norm(x).clamp(1e-8)
+
         return x
 
   
@@ -262,13 +265,17 @@ class PGAT(Encoder):
         self.layers = nn.Sequential(*gat_layers)
         self.encode_graph = True
         self.scale = torch.Tensor([args.scale])
+        self.layer_norm = nn.LayerNorm(out_dim * args.n_heads)
+
+
 
     def encode(self, x, adj):
         # convert the Euclidean embeddings to poincare embeddings
         x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
-#        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
         x = super(PGAT, self).encode(x, adj)
         x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
+#        x = self.layer_norm(x)
+#        x = x * 1 / torch.norm(x).clamp(1e-8)
         return x
 
 

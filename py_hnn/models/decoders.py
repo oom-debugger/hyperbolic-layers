@@ -94,7 +94,9 @@ class PGCNDecoder(Decoder):
         self.cls.update_curvature(self.c)
 
     def decode(self, x, adj):
-        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.c)
+#        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.c)
+#        x = x * 5 / torch.norm(x).clamp(1e-8)
+#        x = x * 5
         x = super(PGCNDecoder, self).decode(x, adj)
 #        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.c), c=self.c), c=self.c)
         return x
@@ -177,9 +179,9 @@ class PGATDecoder(Decoder):
         self.scale = torch.Tensor([args.scale])
 
     def decode(self, x, adj):
-#        x = PoincareBall.poincare2euclidean(x, c=self.scale, scale=self.c)
-#        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.c)
+        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.c)
 #        x = x * 5 / torch.norm(x).clamp(1e-8)
+        x = x * 5
         x = super(PGATDecoder, self).decode(x, adj)
 #        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
 #        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.c), c=self.c), c=self.c)
