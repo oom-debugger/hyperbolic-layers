@@ -6,9 +6,7 @@ import torch.nn as nn
 
 import manifolds
 from layers.att_layers import GraphAttentionLayer
-from layers.hyp_att_layers import MultiHeadGraphAttentionLayer as MultiHeadHGAT
 from layers.hyp_att_layers import GraphAttentionLayer as HATlayer
-from layers.poincare_layers import GraphAttentionLayer as PGraphAttentionLayer
 
 import layers.hyp_layers as hyp_layers
 from layers.layers import GraphConvolution, Linear, get_dim_act
@@ -118,8 +116,11 @@ class PGCN(Encoder):
         # convert the Euclidean embeddings to poincare embeddings
 #        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
         x = super(PGCN, self).encode(x, adj)
+        # Layer norm normalization (Table 3.a)
 #        x = self.layer_norm(x)
+        # hyperbolic normalization
         x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
+        # Constant normaization layer (Table 3.a)
 #        x = x * 1 / torch.norm(x).clamp(1e-8)
 
         return x
@@ -270,59 +271,21 @@ class PGAT(Encoder):
 
 
     def encode(self, x, adj):
-        # convert the Euclidean embeddings to poincare embeddings
+        # compress the Euclidean embeddings into ball-shape embeddings...
+        # Try with and without this...
         x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
-        x = super(PGAT, self).encode(x, adj)
-        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
 #        x = self.layer_norm(x)
 #        x = x * 1 / torch.norm(x).clamp(1e-8)
+#        x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.curvatures[0])
+        x = super(PGAT, self).encode(x, adj)
+        # Layer norm normalization (Table 3.a)
+#        x = self.layer_norm(x)
+        # hyperbolic normalization
+        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
+        # Constant normaization layer (Table 3.a)
+#        x = x * 1 / torch.norm(x).clamp(1e-8)
+        
         return x
-
-
-class HGAT(Encoder):
-    """
-    Graph Attention Networks.
-    """
-
-    def __init__(self, attention_version, c, args):
-        super(HGAT, self).__init__(c)
-        assert args.num_layers > 0
-        dims, acts, self.curvatures = hyp_layers.get_dim_act_curv(args)
-        self.manifold = getattr(manifolds, args.manifold)()
-        gat_layers = []
-        for i in range(len(dims) - 1):
-            in_dim, out_dim = dims[i], dims[i + 1]
-            act = acts[i]
-            assert dims[i + 1] % args.n_heads == 0
-            out_dim = dims[i + 1] // args.n_heads
-#            concat = True
-            gat_layers.append(
-                    MultiHeadHGAT(
-                            manifold=self.manifold,
-                            input_dim=in_dim, 
-                            output_dim=out_dim, 
-                            curvature=self.curvatures[i],
-                            dropout=args.dropout, 
-                            activation=act, 
-                            alpha=args.alpha, 
-                            nheads=args.n_heads, 
-#                           concat=concat,
-                            self_attention_version=attention_version))
-
-        self.layers = nn.Sequential(*gat_layers)
-        self.encode_graph = True
-
-    def encode(self, x, adj):
-        x_hyp = Hyperboloid.proj(Hyperboloid.expmap0(Hyperboloid.proj_tan0(x, c=1), c=1), c=1)
-        return super(HGAT, self).encode(x_hyp, adj)
-
-
-class HGATV0(HGAT):
-    """
-    Graph Attention Networks.
-    """
-    def __init__(self, c, args):
-        super(HGATV0, self).__init__(attention_version='v0', c=c, args=args)
 
 
 class Shallow(Encoder):

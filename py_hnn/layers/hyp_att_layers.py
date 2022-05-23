@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Hyperbolic Attention layer
-@author: mehrdad khatir
 """
 import torch
 import torch.nn as nn
@@ -186,7 +185,6 @@ class SharedSelfAttention(Module):
         # However, if we want to have node-specific attention then
         # W_dim(graph_nodes * d_model, graph_nodes * graph_nodes * self.d_k)
         
-        #TODO(mehrdad): mobius.mat_vec is more efficient that HypLinear.
         self.att_input_linear = HypLinear(
                 manifold=self.manifold,
                 in_features=self.input_dim,
@@ -231,7 +229,7 @@ class SharedSelfAttentionV0(SharedSelfAttention):
         if torch.nonzero(mask).numel() == 0:
             raise ValueError('adjacency matrix must have at least 1 edge.')
         hyp_att_embeddings = []
-        # TODO(mehrdad): if adjaceny matrix is sparse matrix, we can optimize these nested for loops.
+        # TODO( ): if adjaceny matrix is sparse matrix, we can optimize these nested for loops.
         for src_node, incoming_edges in enumerate(mask):
             # calculate the activation for each node
             masked_v = []
@@ -261,7 +259,7 @@ class SharedSelfAttentionV0(SharedSelfAttention):
             hyp_att_embeddings.append(hyp_att_em)
         
         hyp_att_embeddings = torch.stack(hyp_att_embeddings)   
-        # TODO(khatir): avoid activation function as makes the output NaaN.
+        # TODO( ): avoid activation function as makes the output NaaN.
         if self.hyp_act:
             hyp_att_embeddings = self.hyp_act(hyp_att_embeddings)    
             return hyp_att_embeddings
@@ -338,7 +336,7 @@ class HypGraphSelfAttentionLayer(Module):
                 c=self.curvature, 
                 dropout=dropout, 
                 use_bias=use_bias)
-        # TODO(mehrdad): investigate if it is needed and maybe remove. I don't
+        # TODO( ): investigate if it is needed and maybe remove. I don't
         # know the effect of LeakyRelU on hyperbolic vectors.
         # self.att_leakyrelu = nn.LeakyReLU(negative_slope=1e-2, inpace=True)
         self.att_out_linear = HypLinear(
@@ -365,7 +363,7 @@ class HypGraphSelfAttentionLayer(Module):
             a vector of dim(M,N) corresponding to the attention embeddings for
             the given node.
         """
-        # TODO(mehrdad): investigate if graph connection can be uploaded at compile time.
+        # TODO( ): investigate if graph connection can be uploaded at compile time.
         masked_v = []
         masked_a = []
         h = []

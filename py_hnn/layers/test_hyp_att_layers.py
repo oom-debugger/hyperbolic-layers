@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Hyperbolic Attention layer unittests.
-@author: mehrdad khatir
 """
 import torch
 import unittest
@@ -28,7 +27,7 @@ class TestStringMethods(unittest.TestCase):
                             [1.1018, 0.2379, 0.066],
                             [-0.8950,  0.3513, -0.2600]])
         edges = torch.IntTensor([[0, 1], [1, 1], [0, 2], [1,2], [2, 0]])
-        # TODO(mehrdad): Figure out a way to test the correctness of the 
+        # TODO( ): Figure out a way to test the correctness of the 
         # output values as well.
         self.assertEqual(torch.all(torch.isnan(hyp_att(t_in, edges))), False)
 

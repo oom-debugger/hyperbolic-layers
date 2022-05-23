@@ -179,13 +179,10 @@ class PGATDecoder(Decoder):
         self.scale = torch.Tensor([args.scale])
 
     def decode(self, x, adj):
+        # adds aditional softer crvature... experiment with and without it...
         x = PoincareBall.euclidean2poincare(x, c=self.scale, scale=self.c)
-#        x = x * 5 / torch.norm(x).clamp(1e-8)
         x = x * 5
         x = super(PGATDecoder, self).decode(x, adj)
-#        x = PoincareBall.proj(PoincareBall.expmap0(PoincareBall.proj_tan0(x, self.c), c=self.c), c=self.c)
-#        x = self.manifold.proj(self.manifold.expmap0(self.manifold.proj_tan0(x, self.c), c=self.c), c=self.c)
-#        x = self.manifold.proj_tan0(self.manifold.logmap0(x, c=self.c), c=self.c)
         return x
  
 
@@ -216,17 +213,14 @@ class LinearDecoder(Decoder):
 model2decoder = {
     'GCN': GCNDecoder,
     'GAT': GATDecoder,
+    # interestingly PGAT works better for soem dataset if the decoder is Euclidean GAT
 #    'PGAT': GATDecoder,
     'PGAT': PGATDecoder,
     'PGCN': PGCNDecoder,
     # Note: if the manifold is Poincare, PGCNDecoder works better but for Hyperboloid, even the lindear does not work... so, our technicque only works if the space is
     # PoincareBall model.
-#    'PGCN': LinearDecoder,
-#    'HAT': LinearDecoder,
     'HAT': HATDecoder,
-    'HGATV0': LinearDecoder,
     'HNN': LinearDecoder,
-#    'HGCN': HGCNDecoder,
     'HGCN': HGCNDecoder,
     'MLP': LinearDecoder,
     'Shallow': LinearDecoder,

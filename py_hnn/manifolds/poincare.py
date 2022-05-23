@@ -203,7 +203,7 @@ class PoincareBall(Manifold):
             raise ValueError(
                     'The batch dimension of the bm {} does not match the batch'
                     'dimension of the bx {}'.format(bm.shape[0], bx.shape[0]))
-        # TODO(mehrdad): optimize it using torch modules.
+        # TODO(  ): optimize it using torch modules.
         batch_m = []
         for i in range(0, bm.shape[0]):
             batch_m.append(PoincareBall.mobius_matvec(bm[i], bx[i], c))

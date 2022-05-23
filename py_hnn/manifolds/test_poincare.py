@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Hyperboloid maniford unit tests.
-@author: mehrdad khatir
 """
 import torch
 import unittest

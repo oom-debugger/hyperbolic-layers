@@ -71,7 +71,6 @@ def train(args):
     # Load data
     data = load_data(args, os.path.join(os.environ['DATAPATH'], args.dataset))
     args.n_nodes, args.feat_dim = data['features'].shape
-    # TODO(mehrdad): Clean up this part. we better off not overriding the args params.
     if args.task == 'nc':
         Model = NCModel
         args.n_classes = int(data['labels'].max() + 1)
@@ -100,16 +99,8 @@ def train(args):
         step_size=int(args.lr_reduce_freq),
         gamma=float(args.gamma)
     )
-#    # TODO(mehrdad): Print the detailed parameters in a log file.
-#    print("=================================================================")
-##    print(model)
-##    for p in model.parameters():
-##        print(p.size())
-##        print('-----')
-#    print("=================================================================")
     tot_params = sum([np.prod(p.size()) for p in model.parameters()])
     logging.info(f"Total number of parameters: {tot_params}")
-    # TODO(khatir): what does this part do?
     if args.cuda is not None and int(args.cuda) >= 0 :
         os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda)
         model = model.to(args.device)
@@ -130,7 +121,6 @@ def train(args):
         model.train()
         optimizer.zero_grad()
         embeddings = model.encode(data['features'], data['adj_train_norm'])
-        # TODO(mehrdad): add the debugging log for NaaN.
         train_metrics = model.compute_metrics(embeddings, data, 'train')
         train_stats = train_stats.append(detaching_loss(train_metrics), ignore_index=True)
         train_metrics['loss'].backward()
@@ -193,13 +183,7 @@ def train(args):
         model.load_state_dict(torch.load(_BEST_MODEL_PATH))
         pred = model.encode(data['features'], data['adj_train_norm']).detach().cpu().numpy()
         emb_df = pd.DataFrame(pred, columns = [f'dim_{i}' for i in range(0, pred.shape[1])])
-# =============================================================================
-#         # TODO(mehrdad): remove the decode part. it is task dependent
-#         dec_pred = model.decoder.decode(embeddings, data['adj_train_norm']).t().detach().cpu().numpy()
-#         for i in range(0, dec_pred.shape[0]):
-#             emb_df[f'dec_dim_{i}'] = dec_pred[i].tolist()
         emb_df['label'] = data['labels']
-# =============================================================================
         emb_df.to_csv(os.path.join(save_dir, f"embeddings_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
         train_stats.to_csv(os.path.join(save_dir, f"train_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
         val_stats.to_csv(os.path.join(save_dir, f"val_metrics_{args.dataset}_lr={args.lr}_dim={args.dim}_nheads={args.n_heads}_model_{args.model}_task={args.task}.csv"))
@@ -211,8 +195,6 @@ def train(args):
 
         json.dump(vars(args), open(os.path.join(save_dir, 'config.json'), 'w'))
         logging.info(f"Saved model in {save_dir}")
-        # TODO(khatir):  else: Delete the save_model dir but make sure that 
-        # the directory was non-existence before the training
         
 
 if __name__ == '__main__':

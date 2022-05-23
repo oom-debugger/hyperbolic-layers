@@ -116,7 +116,7 @@ class RiemannianSGD(OptimMixin, torch.optim.Optimizer):
 
                     grad.add_(point, alpha=weight_decay)
                     grad = manifold.egrad2rgrad(point, grad, c)
-                    # TODO(mehrdad): this part does not work, fix it.
+                    # TODO( ): this part does not work, fix it.
                     if momentum > 0:
                         momentum_buffer = state["momentum_buffer"]
                         momentum_buffer.mul_(momentum).add_(grad, alpha=1 - dampening)

@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 """Poincare Layers
 Created on Sun Dec 12 08:59:31 2021
-
-@author: mehrdad
 """
 import math
 
